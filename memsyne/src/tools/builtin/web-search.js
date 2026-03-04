@@ -1,11 +1,19 @@
 import { AppError } from "../../errors/app-error.js";
 import { excerptText } from "../../logging/safe-debug.js";
+import {
+  callBraveWebApi,
+  normalizeBraveSearchResults,
+  resolveBraveMode,
+  resolveMaxResults,
+  resolveMaxTokens,
+  validateQuery,
+} from "./brave-web.js";
 
 const webSearchTool = {
   type: "function",
   function: {
     name: "web_search",
-    description: "Search the web for fresh information.",
+    description: "Search the internet with Brave and return LLM-friendly context with metadata.",
     parameters: {
       type: "object",
       properties: {
@@ -17,7 +25,17 @@ const webSearchTool = {
           type: "integer",
           description: "Max number of results to return.",
           minimum: 1,
-          maximum: 10,
+          maximum: 20,
+        },
+        mode: {
+          type: "string",
+          description: "Search mode override.",
+          enum: ["llm_context", "web_search"],
+        },
+        max_tokens: {
+          type: "integer",
+          description: "Per-result token budget for context extraction.",
+          enum: [2048, 8192, 16384],
         },
       },
       required: ["query"],
@@ -28,7 +46,7 @@ const webSearchTool = {
 
 function createWebSearchHandler({ config }) {
   return async function handleWebSearch({ args, logger }) {
-    if (!config.tools.webSearch.enabled) {
+    if (!config.tools.web.enabled) {
       throw new AppError({
         statusCode: 400,
         code: "web_search_disabled",
@@ -37,103 +55,40 @@ function createWebSearchHandler({ config }) {
       });
     }
 
-    if (!config.tools.webSearch.apiUrl || !config.tools.webSearch.apiKey) {
-      throw new AppError({
-        statusCode: 500,
-        code: "config_error",
-        type: "server_error",
-        message:
-          "web_search is enabled but SAGE_WEB_SEARCH_API_URL or SAGE_WEB_SEARCH_API_KEY is missing.",
-      });
-    }
+    const query = validateQuery(args.query);
+    const mode = resolveBraveMode(args.mode, config.tools.web.mode);
+    const maxTokens = resolveMaxTokens(args.max_tokens);
+    const maxResults = resolveMaxResults(args.max_results, config.tools.web.maxResults);
 
-    const query = typeof args.query === "string" ? args.query.trim() : "";
-    if (!query || query.length > 500) {
-      throw new AppError({
-        statusCode: 400,
-        code: "invalid_tool_arguments",
-        type: "invalid_request_error",
-        message:
-          "web_search requires query length between 1 and 500 characters.",
-      });
-    }
-
-    const parsedMaxResults = Number.parseInt(args.max_results, 10);
-    const maxResults =
-      Number.isInteger(parsedMaxResults) &&
-      parsedMaxResults >= 1 &&
-      parsedMaxResults <= 10
-        ? parsedMaxResults
-        : config.tools.webSearch.maxResults;
-
-    const signal = AbortSignal.timeout(config.tools.webSearch.timeoutMs);
-    const response = await fetch(config.tools.webSearch.apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.tools.webSearch.apiKey}`,
-      },
-      body: JSON.stringify({
-        query,
-        max_results: maxResults,
-      }),
-      signal,
+    const payload = await callBraveWebApi({
+      query,
+      mode,
+      maxResults,
+      maxTokens,
+      braveConfig: config.tools.web,
+      logger,
     });
 
-    if (!response.ok) {
-      logger.error(
-        {
-          apiUrl: config.tools.webSearch.apiUrl,
-          requestBody: { query, max_results: maxResults },
-          responseStatus: response.status,
-          responseStatusText: response.statusText,
-          responseBody: await response.clone().text(),
-        },
-        "web_search provider error"
-      );
-      throw new AppError({
-        statusCode: 502,
-        code: "upstream_error",
-        type: "server_error",
-        message: `web_search provider responded with status ${response.status}.`,
-      });
-    }
-
-    const payload = await response.json();
-    const normalizedResults = normalizeSearchResults(payload, maxResults);
+    const normalized = normalizeBraveSearchResults(payload, maxResults);
     logger.debug(
       {
+        mode,
         queryExcerpt: excerptText(query),
-        resultCount: normalizedResults.length,
+        resultCount: normalized.results.length,
+        contextLength: normalized.contextText.length,
       },
-      "web_search completed"
+      "web_search completed via Brave API"
     );
 
     return {
       query,
-      result_count: normalizedResults.length,
-      results: normalizedResults,
+      mode,
+      max_tokens: maxTokens,
+      result_count: normalized.results.length,
+      context: normalized.contextText,
+      results: normalized.results,
     };
   };
-}
-
-function normalizeSearchResults(payload, maxResults) {
-  const source = Array.isArray(payload?.results)
-    ? payload.results
-    : Array.isArray(payload?.data)
-    ? payload.data
-    : Array.isArray(payload)
-    ? payload
-    : [];
-
-  return source.slice(0, maxResults).map((item) => ({
-    title: excerptText(String(item?.title || item?.name || ""), 200),
-    url: String(item?.url || item?.link || ""),
-    snippet: excerptText(
-      String(item?.snippet || item?.description || item?.content || ""),
-      500
-    ),
-  }));
 }
 
 export { webSearchTool, createWebSearchHandler };

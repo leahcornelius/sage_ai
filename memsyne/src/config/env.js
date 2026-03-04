@@ -28,6 +28,7 @@ function createConfig(env = process.env) {
       (hasLegacyLogLevel || hasConsoleLevel || hasFileLevel ? legacyLogLevel : "debug"),
     "SAGE_LOG_FILE_LEVEL"
   );
+  const webEnabled = parseBoolean(env.WEB_SEARCH_ENABLED, true);
 
   return {
     openai: {
@@ -93,19 +94,35 @@ function createConfig(env = process.env) {
       ),
       memoryWriteEnabled: parseBoolean(env.SAGE_MEMORY_TOOL_WRITE_ENABLED, true),
       mcpServers: parseJsonArray(env.SAGE_MCP_SERVERS_JSON, "SAGE_MCP_SERVERS_JSON"),
-      webSearch: {
-        enabled: parseBoolean(env.SAGE_WEB_SEARCH_ENABLED, true),
-        apiUrl: optionalString(env.SAGE_WEB_SEARCH_API_URL),
-        apiKey: optionalString(env.SAGE_WEB_SEARCH_API_KEY),
+      web: {
+        enabled: webEnabled,
+        braveApiKey: webEnabled
+          ? requireString(env.BRAVE_API_KEY, "BRAVE_API_KEY")
+          : optionalString(env.BRAVE_API_KEY),
+        mode: parseEnum(
+          optionalString(env.SAGE_BRAVE_MODE) || "llm_context",
+          ["llm_context", "web_search"],
+          "SAGE_BRAVE_MODE"
+        ),
         maxResults: parsePositiveInteger(
-          env.SAGE_WEB_SEARCH_MAX_RESULTS,
+          env.SAGE_BRAVE_MAX_RESULTS,
           5,
-          "SAGE_WEB_SEARCH_MAX_RESULTS"
+          "SAGE_BRAVE_MAX_RESULTS"
         ),
         timeoutMs: parsePositiveInteger(
-          env.SAGE_WEB_SEARCH_TIMEOUT_MS,
+          env.SAGE_BRAVE_TIMEOUT_MS,
           8_000,
-          "SAGE_WEB_SEARCH_TIMEOUT_MS"
+          "SAGE_BRAVE_TIMEOUT_MS"
+        ),
+        safeSearch: parseEnum(
+          optionalString(env.SAGE_BRAVE_SAFESEARCH) || "off",
+          ["off", "moderate", "strict"],
+          "SAGE_BRAVE_SAFESEARCH"
+        ),
+        country: parseCountryCode(optionalString(env.SAGE_BRAVE_COUNTRY) || "GB", "SAGE_BRAVE_COUNTRY"),
+        searchLang: parseSearchLanguage(
+          optionalString(env.SAGE_BRAVE_SEARCH_LANG) || "en",
+          "SAGE_BRAVE_SEARCH_LANG"
         ),
       },
     },
@@ -229,6 +246,45 @@ function parseJsonArray(value, name) {
   }
 
   return parsed;
+}
+
+function parseEnum(value, allowedValues, name) {
+  if (allowedValues.includes(value)) {
+    return value;
+  }
+
+  throw new AppError({
+    statusCode: 500,
+    code: "config_error",
+    type: "server_error",
+    message: `${name} must be one of: ${allowedValues.join(", ")}.`,
+  });
+}
+
+function parseCountryCode(value, name) {
+  if (/^[A-Za-z]{2}$/.test(value)) {
+    return value.toUpperCase();
+  }
+
+  throw new AppError({
+    statusCode: 500,
+    code: "config_error",
+    type: "server_error",
+    message: `${name} must be a 2-letter country code.`,
+  });
+}
+
+function parseSearchLanguage(value, name) {
+  if (/^[A-Za-z-]{2,10}$/.test(value)) {
+    return value.toLowerCase();
+  }
+
+  throw new AppError({
+    statusCode: 500,
+    code: "config_error",
+    type: "server_error",
+    message: `${name} must be a valid language code.`,
+  });
 }
 
 export { createConfig };

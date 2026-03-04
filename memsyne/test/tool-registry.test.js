@@ -12,7 +12,7 @@ test("tool registry keeps built-in tool when client defines a conflicting name",
       tools: {
         enabled: true,
         memoryWriteEnabled: true,
-        webSearch: {
+        web: {
           enabled: false,
         },
       },
@@ -51,7 +51,7 @@ test("tool registry includes namespaced MCP tools", () => {
       tools: {
         enabled: true,
         memoryWriteEnabled: true,
-        webSearch: {
+        web: {
           enabled: false,
         },
       },
@@ -81,4 +81,38 @@ test("tool registry includes namespaced MCP tools", () => {
 
   assert.ok(context.tools.some((tool) => tool.function.name === "mcp.web.search"));
   assert.ok(context.handlers.has("mcp.web.search"));
+});
+
+test("tool registry registers web_search and get_url_content when web tools are enabled", () => {
+  const registry = createToolRegistry({
+    config: {
+      tools: {
+        enabled: true,
+        memoryWriteEnabled: true,
+        web: {
+          enabled: true,
+          braveApiKey: "brave-key",
+          mode: "llm_context",
+          maxResults: 5,
+          timeoutMs: 500,
+          safeSearch: "off",
+          country: "GB",
+          searchLang: "en",
+        },
+      },
+    },
+    logger,
+    memoryService: {
+      getMemoriesForTool: async () => [],
+      addMemoryFromTool: async () => ({}),
+    },
+    mcpClientManager: {
+      getToolDefinitions: () => [],
+      invoke: async () => ({}),
+    },
+  });
+
+  const context = registry.getExecutionContext({ clientTools: [] });
+  assert.ok(context.tools.some((tool) => tool.function.name === "web_search"));
+  assert.ok(context.tools.some((tool) => tool.function.name === "get_url_content"));
 });

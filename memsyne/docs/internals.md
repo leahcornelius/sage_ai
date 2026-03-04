@@ -64,7 +64,9 @@ src/
 | `src/tools/tool-executor.js` | `createToolExecutor` | Concurrent tool execution with timeout/result envelope | `src/index.js`, chat service |
 | `src/tools/builtin/get-memories.js` | `getMemoriesTool`, `createGetMemoriesHandler` | Built-in memory read tool contract/handler | Tool registry |
 | `src/tools/builtin/add-memory.js` | `addMemoryTool`, `createAddMemoryHandler` | Built-in memory write tool contract/handler | Tool registry |
-| `src/tools/builtin/web-search.js` | `webSearchTool`, `createWebSearchHandler` | Built-in web search tool contract/handler | Tool registry |
+| `src/tools/builtin/web-search.js` | `webSearchTool`, `createWebSearchHandler` | Brave-backed query search tool contract/handler | Tool registry |
+| `src/tools/builtin/get-url-content.js` | `getUrlContentTool`, `createGetUrlContentHandler` | Brave-first URL content tool with direct fetch fallback | Tool registry |
+| `src/tools/builtin/brave-web.js` | Brave helper exports | Shared Brave API request/normalization + direct URL fetch helpers | Built-in web tools |
 | `src/tools/mcp/mcp-client-manager.js` | `createMcpClientManager` | MCP server initialization, listing, invocation | `src/index.js`, tool registry |
 | `src/tools/mcp/mcp-tool-adapter.js` | `mapMcpToolsToOpenAiTools`, `parseNamespacedToolName`, `toNamespacedToolName` | MCP tool name adaptation | MCP manager |
 | `src/utils/abort.js` | `createAbortControllerFromRequest` | Request disconnect to abort-signal bridge | Chat route |
@@ -161,11 +163,14 @@ Derived from `src/config/env.js` and `.env.example`.
 | `SAGE_TOOL_MAX_PARALLEL_CALLS` | `4` | Max concurrent server-side tool calls |
 | `SAGE_MEMORY_TOOL_WRITE_ENABLED` | `true` | Enables/disables `add_memory` tool writes |
 | `SAGE_MCP_SERVERS_JSON` | `[]` | MCP server definitions JSON array |
-| `SAGE_WEB_SEARCH_ENABLED` | `true` | Enables/disables built-in `web_search` tool |
-| `SAGE_WEB_SEARCH_API_URL` | unset | Web search provider endpoint |
-| `SAGE_WEB_SEARCH_API_KEY` | unset | Web search provider auth token |
-| `SAGE_WEB_SEARCH_MAX_RESULTS` | `5` | Default max web search results |
-| `SAGE_WEB_SEARCH_TIMEOUT_MS` | `8000` | Web search provider timeout |
+| `WEB_SEARCH_ENABLED` | `true` | Enables/disables built-in Brave web tools (`web_search`, `get_url_content`) |
+| `BRAVE_API_KEY` | required when enabled | Brave API auth token (`X-Subscription-Token`) |
+| `SAGE_BRAVE_MODE` | `llm_context` | Default Brave mode (`llm_context` or `web_search`) |
+| `SAGE_BRAVE_MAX_RESULTS` | `5` | Default max Brave results |
+| `SAGE_BRAVE_TIMEOUT_MS` | `8000` | Brave request timeout |
+| `SAGE_BRAVE_SAFESEARCH` | `off` | Brave safesearch level (`off`, `moderate`, `strict`) |
+| `SAGE_BRAVE_COUNTRY` | `GB` | Brave country/region hint |
+| `SAGE_BRAVE_SEARCH_LANG` | `en` | Brave search language hint |
 | `SAGE_LOG_LEVEL` | `info` | Legacy shared log level fallback |
 | `SAGE_LOG_CONSOLE_LEVEL` | derived | Console log level |
 | `SAGE_LOG_FILE_LEVEL` | derived | File log level |

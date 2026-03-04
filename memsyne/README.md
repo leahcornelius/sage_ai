@@ -86,7 +86,9 @@ Open WebUI will call `/v1/models` to discover available upstream models. If `SAG
 - `OPENAI_BASE_URL`: point Sage at a compatible upstream if needed
 - `SAGE_TOOLS_ENABLED`: enable server tool support
 - `SAGE_MCP_SERVERS_JSON`: JSON array of MCP server definitions
-- `SAGE_WEB_SEARCH_*`: configure custom web search backend for `web_search`
+- `WEB_SEARCH_ENABLED`: enable or disable built-in Brave web tools
+- `BRAVE_API_KEY`: Brave Search API key for built-in web tools
+- `SAGE_BRAVE_*`: Brave mode, locale, safesearch, limits and timeout controls
 
 ## MCP server config format
 

@@ -22,6 +22,7 @@ test("createConfig parses optional settings and defaults", () => {
   const config = createConfig({
     OPENAI_API_KEY: "openai-key",
     SAGE_API_KEY: "sage-key",
+    BRAVE_API_KEY: "brave-key",
     SAGE_OPENAI_MODEL_ALLOWLIST: "gpt-4.1-mini, gpt-5.2",
     SAGE_PORT: "9999",
     SAGE_LOG_PRETTY: "false",
@@ -42,15 +43,21 @@ test("createConfig parses optional settings and defaults", () => {
   assert.equal(config.tools.maxParallelCalls, 4);
   assert.equal(config.tools.memoryWriteEnabled, true);
   assert.deepEqual(config.tools.mcpServers, []);
-  assert.equal(config.tools.webSearch.enabled, true);
-  assert.equal(config.tools.webSearch.maxResults, 5);
-  assert.equal(config.tools.webSearch.timeoutMs, 8000);
+  assert.equal(config.tools.web.enabled, true);
+  assert.equal(config.tools.web.braveApiKey, "brave-key");
+  assert.equal(config.tools.web.mode, "llm_context");
+  assert.equal(config.tools.web.maxResults, 5);
+  assert.equal(config.tools.web.timeoutMs, 8000);
+  assert.equal(config.tools.web.safeSearch, "off");
+  assert.equal(config.tools.web.country, "GB");
+  assert.equal(config.tools.web.searchLang, "en");
 });
 
 test("createConfig supports independent console and file log levels", () => {
   const config = createConfig({
     OPENAI_API_KEY: "openai-key",
     SAGE_API_KEY: "sage-key",
+    BRAVE_API_KEY: "brave-key",
     SAGE_LOG_LEVEL: "warn",
     SAGE_LOG_CONSOLE_LEVEL: "error",
     SAGE_LOG_FILE_LEVEL: "trace",
@@ -69,6 +76,7 @@ test("createConfig falls back to SAGE_LOG_LEVEL for per-destination levels", () 
   const config = createConfig({
     OPENAI_API_KEY: "openai-key",
     SAGE_API_KEY: "sage-key",
+    BRAVE_API_KEY: "brave-key",
     SAGE_LOG_LEVEL: "warn",
   });
 
@@ -98,11 +106,14 @@ test("createConfig parses tool and MCP settings", () => {
     SAGE_TOOL_MAX_PARALLEL_CALLS: "2",
     SAGE_MEMORY_TOOL_WRITE_ENABLED: "false",
     SAGE_MCP_SERVERS_JSON: '[{"name":"web","transport":"http","url":"https://mcp.example.com"},{"name":"brave","transport":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-brave-search"],"env":{"BRAVE_API_KEY":"x"}}]',
-    SAGE_WEB_SEARCH_ENABLED: "false",
-    SAGE_WEB_SEARCH_API_URL: "https://search.example.com",
-    SAGE_WEB_SEARCH_API_KEY: "key",
-    SAGE_WEB_SEARCH_MAX_RESULTS: "9",
-    SAGE_WEB_SEARCH_TIMEOUT_MS: "9000",
+    WEB_SEARCH_ENABLED: "true",
+    BRAVE_API_KEY: "brave-key",
+    SAGE_BRAVE_MODE: "web_search",
+    SAGE_BRAVE_MAX_RESULTS: "9",
+    SAGE_BRAVE_TIMEOUT_MS: "9000",
+    SAGE_BRAVE_SAFESEARCH: "moderate",
+    SAGE_BRAVE_COUNTRY: "US",
+    SAGE_BRAVE_SEARCH_LANG: "en",
   });
 
   assert.equal(config.tools.enabled, false);
@@ -111,7 +122,59 @@ test("createConfig parses tool and MCP settings", () => {
   assert.equal(config.tools.maxParallelCalls, 2);
   assert.equal(config.tools.memoryWriteEnabled, false);
   assert.equal(config.tools.mcpServers.length, 2);
-  assert.equal(config.tools.webSearch.enabled, false);
-  assert.equal(config.tools.webSearch.maxResults, 9);
-  assert.equal(config.tools.webSearch.timeoutMs, 9000);
+  assert.equal(config.tools.web.enabled, true);
+  assert.equal(config.tools.web.braveApiKey, "brave-key");
+  assert.equal(config.tools.web.mode, "web_search");
+  assert.equal(config.tools.web.maxResults, 9);
+  assert.equal(config.tools.web.timeoutMs, 9000);
+  assert.equal(config.tools.web.safeSearch, "moderate");
+  assert.equal(config.tools.web.country, "US");
+  assert.equal(config.tools.web.searchLang, "en");
+});
+
+test("createConfig requires BRAVE_API_KEY when WEB_SEARCH_ENABLED=true", () => {
+  assert.throws(
+    () =>
+      createConfig({
+        OPENAI_API_KEY: "openai-key",
+        SAGE_API_KEY: "sage-key",
+        WEB_SEARCH_ENABLED: "true",
+      }),
+    /BRAVE_API_KEY/
+  );
+});
+
+test("createConfig accepts disabled web search without BRAVE_API_KEY", () => {
+  const config = createConfig({
+    OPENAI_API_KEY: "openai-key",
+    SAGE_API_KEY: "sage-key",
+    WEB_SEARCH_ENABLED: "false",
+  });
+
+  assert.equal(config.tools.web.enabled, false);
+  assert.equal(config.tools.web.braveApiKey, null);
+});
+
+test("createConfig rejects invalid brave enum values", () => {
+  assert.throws(
+    () =>
+      createConfig({
+        OPENAI_API_KEY: "openai-key",
+        SAGE_API_KEY: "sage-key",
+        BRAVE_API_KEY: "brave-key",
+        SAGE_BRAVE_MODE: "random",
+      }),
+    /SAGE_BRAVE_MODE/
+  );
+
+  assert.throws(
+    () =>
+      createConfig({
+        OPENAI_API_KEY: "openai-key",
+        SAGE_API_KEY: "sage-key",
+        BRAVE_API_KEY: "brave-key",
+        SAGE_BRAVE_SAFESEARCH: "high",
+      }),
+    /SAGE_BRAVE_SAFESEARCH/
+  );
 });

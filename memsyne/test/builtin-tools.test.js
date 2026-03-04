@@ -5,8 +5,27 @@ import pino from "pino";
 import { createGetMemoriesHandler } from "../src/tools/builtin/get-memories.js";
 import { createAddMemoryHandler } from "../src/tools/builtin/add-memory.js";
 import { createWebSearchHandler } from "../src/tools/builtin/web-search.js";
+import { createGetUrlContentHandler } from "../src/tools/builtin/get-url-content.js";
 
 const logger = pino({ level: "silent" });
+
+function createWebConfig(overrides = {}) {
+  return {
+    tools: {
+      web: {
+        enabled: true,
+        braveApiKey: "brave-key",
+        mode: "llm_context",
+        maxResults: 5,
+        timeoutMs: 500,
+        safeSearch: "off",
+        country: "GB",
+        searchLang: "en",
+        ...overrides,
+      },
+    },
+  };
+}
 
 test("get_memories handler returns memory results", async () => {
   const handler = createGetMemoriesHandler({
@@ -48,40 +67,196 @@ test("add_memory handler enforces write flag", async () => {
   );
 });
 
-test("web_search handler calls provider and normalizes results", async () => {
+test("web_search handler uses brave llm_context mode and normalizes results", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => ({
-    ok: true,
-    json: async () => ({
-      results: [{ title: "Result", url: "https://example.com", snippet: "Snippet" }],
-    }),
-  });
+  let requestedUrl;
+  globalThis.fetch = async (url) => {
+    requestedUrl = String(url);
+    return {
+      ok: true,
+      json: async () => ({
+        summary: "High-level context summary",
+        web: {
+          results: [{ title: "Result", url: "https://example.com", description: "Snippet text" }],
+        },
+      }),
+    };
+  };
 
   try {
     const handler = createWebSearchHandler({
-      config: {
-        tools: {
-          webSearch: {
-            enabled: true,
-            apiUrl: "https://search.example.com",
-            apiKey: "secret",
-            maxResults: 5,
-            timeoutMs: 500,
-          },
-        },
-      },
+      config: createWebConfig(),
     });
 
     const result = await handler({
       args: {
         query: "test query",
+        max_tokens: 16384,
       },
       logger,
     });
 
+    const parsed = new URL(requestedUrl);
+    assert.equal(parsed.searchParams.get("summary"), "true");
+    assert.equal(parsed.searchParams.get("maximum_number_of_tokens_per_url"), "16384");
     assert.equal(result.result_count, 1);
     assert.equal(result.results[0].url, "https://example.com");
+    assert.equal(result.context, "High-level context summary");
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("web_search handler supports web_search mode and safesearch settings", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl;
+  globalThis.fetch = async (url) => {
+    requestedUrl = String(url);
+    return {
+      ok: true,
+      json: async () => ({
+        web: { results: [] },
+      }),
+    };
+  };
+
+  try {
+    const handler = createWebSearchHandler({
+      config: createWebConfig({
+        mode: "web_search",
+        safeSearch: "moderate",
+      }),
+    });
+
+    await handler({
+      args: {
+        query: "news",
+        max_results: 7,
+      },
+      logger,
+    });
+
+    const parsed = new URL(requestedUrl);
+    assert.equal(parsed.searchParams.get("safesearch"), "moderate");
+    assert.equal(parsed.searchParams.get("count"), "7");
+    assert.equal(parsed.searchParams.get("summary"), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("web_search rejects invalid max_tokens values", async () => {
+  const handler = createWebSearchHandler({
+    config: createWebConfig(),
+  });
+
+  await assert.rejects(
+    () =>
+      handler({
+        args: {
+          query: "query",
+          max_tokens: 1234,
+        },
+        logger,
+      }),
+    /max_tokens/
+  );
+});
+
+test("get_url_content uses Brave when context is available", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      web: {
+        results: [
+          {
+            title: "Example Article",
+            url: "https://example.com/post",
+            description: "Description from Brave",
+            extra_snippets: ["More context from Brave"],
+          },
+        ],
+      },
+    }),
+  });
+
+  try {
+    const handler = createGetUrlContentHandler({
+      config: createWebConfig(),
+    });
+
+    const result = await handler({
+      args: {
+        url: "https://example.com/post",
+      },
+      logger,
+    });
+
+    assert.equal(result.source, "brave");
+    assert.match(result.content, /Description from Brave/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("get_url_content falls back to direct fetch when Brave has no content", async () => {
+  const originalFetch = globalThis.fetch;
+  let callIndex = 0;
+  globalThis.fetch = async () => {
+    callIndex += 1;
+    if (callIndex === 1) {
+      return {
+        ok: true,
+        json: async () => ({ web: { results: [] } }),
+      };
+    }
+
+    return {
+      ok: true,
+      url: "https://example.com/article",
+      headers: {
+        get: (name) => (name.toLowerCase() === "content-type" ? "text/html; charset=utf-8" : null),
+      },
+      text: async () =>
+        "<html><head><title>Test</title></head><body><h1>Hello</h1><p>World content</p></body></html>",
+    };
+  };
+
+  try {
+    const handler = createGetUrlContentHandler({
+      config: createWebConfig(),
+    });
+
+    const result = await handler({
+      args: {
+        url: "https://example.com/article",
+        max_tokens: 2048,
+      },
+      logger,
+    });
+
+    assert.equal(result.source, "direct_fallback");
+    assert.match(result.content, /Hello World content/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("web tooling handlers reject when disabled", async () => {
+  const webHandler = createWebSearchHandler({
+    config: createWebConfig({ enabled: false }),
+  });
+  const urlHandler = createGetUrlContentHandler({
+    config: createWebConfig({ enabled: false }),
+  });
+
+  await assert.rejects(
+    () => webHandler({ args: { query: "hello" }, logger }),
+    /disabled/
+  );
+  await assert.rejects(
+    () => urlHandler({ args: { url: "https://example.com" }, logger }),
+    /disabled/
+  );
 });

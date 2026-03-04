@@ -75,6 +75,13 @@ The following pass through to upstream OpenAI chat completions:
 - `tools`: array of function tool definitions
 - `tool_choice`: one of `none`, `auto`, `required`, or `{ "type": "function", "function": { "name": "..." } }`
 
+Built-in web tools:
+- `web_search`: Brave-backed query search (`llm_context` default).
+- `get_url_content`: Brave-first URL retrieval with direct-fetch fallback.
+
+Token profile argument for web tools:
+- `max_tokens` must be one of `2048` (simple factual), `8192` (standard), `16384` (complex research).
+
 ### Message rules (validated by Sage)
 - Allowed roles: `system`, `developer`, `user`, `assistant`, `tool`
 - `content` supports:
@@ -209,15 +216,29 @@ curl -sS http://localhost:8787/v1/chat/completions \
       {
         "type": "function",
         "function": {
-          "name": "get_memories",
-          "description": "Retrieve relevant long-term memories",
+          "name": "web_search",
+          "description": "Search with Brave",
           "parameters": {
             "type": "object",
             "properties": {
               "query": {"type": "string"},
-              "top_k": {"type": "integer"}
+              "max_tokens": {"type": "integer", "enum": [2048, 8192, 16384]}
             },
             "required": ["query"]
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "get_url_content",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "url": {"type": "string"},
+              "max_tokens": {"type": "integer", "enum": [2048, 8192, 16384]}
+            },
+            "required": ["url"]
           }
         }
       }

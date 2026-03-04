@@ -11,8 +11,8 @@ This document separates **confirmed behavior/constraints** from **code-level fin
 
 ## Operational Caveats
 1. Memory extraction runs in background best-effort and does not affect immediate API success.
-2. `web_search` can be enabled but still fail at runtime if API URL/key are missing.
-3. MCP server support currently normalizes to HTTP transport only.
+2. Brave web tools can be enabled but still fail at runtime if Brave API key is missing/invalid, or remote retrieval fails and direct URL fallback is blocked by target site/network.
+3. MCP server support is transport-dependent; startup behavior for each server is controlled by its `required` flag.
 
 ## Code-Level Findings (Documented, Not Fixed)
 

@@ -3,7 +3,7 @@ import {
   extractAssistantTextFromCompletion,
 } from "../http/serializers/openai-chat.js";
 import { excerptText, objectKeys, textLength } from "../logging/safe-debug.js";
-
+import { AppError } from "../errors/app-error.js";
 /**
  * Composes Sage-specific context around standard OpenAI chat completion
  * requests while keeping the external HTTP layer stateless.

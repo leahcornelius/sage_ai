@@ -1,5 +1,9 @@
 import { createAddMemoryHandler, addMemoryTool } from "./builtin/add-memory.js";
 import { createGetMemoriesHandler, getMemoriesTool } from "./builtin/get-memories.js";
+import {
+  createGetUrlContentHandler,
+  getUrlContentTool,
+} from "./builtin/get-url-content.js";
 import { createWebSearchHandler, webSearchTool } from "./builtin/web-search.js";
 
 function createToolRegistry({ config, logger, memoryService, mcpClientManager }) {
@@ -15,10 +19,14 @@ function createToolRegistry({ config, logger, memoryService, mcpClientManager })
     handler: createAddMemoryHandler({ config, memoryService }),
   });
 
-  if (config.tools.webSearch.enabled) {
+  if (config.tools.web?.enabled) {
     builtInTools.set(webSearchTool.function.name, {
       definition: webSearchTool,
       handler: createWebSearchHandler({ config }),
+    });
+    builtInTools.set(getUrlContentTool.function.name, {
+      definition: getUrlContentTool,
+      handler: createGetUrlContentHandler({ config }),
     });
   }
 

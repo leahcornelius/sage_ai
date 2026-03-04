@@ -23,7 +23,7 @@ Sage is structured as a stateless HTTP facade that enriches upstream OpenAI chat
   - `openai-client`: upstream OpenAI SDK client.
   - `mnemosyne-client`: long-term memory backend client.
 - **Tools (`src/tools/*`)**
-  - Built-in tools: `get_memories`, `add_memory`, optional `web_search`.
+  - Built-in tools: `get_memories`, `add_memory`, `web_search`, `get_url_content`.
   - MCP adapter/manager for namespaced external tools.
   - Tool executor with timeout and bounded parallelism.
 
