@@ -66,16 +66,6 @@ function validateChatCompletionsRequest(body) {
   const tools = normalizeTools(body.tools);
   const toolChoice = normalizeToolChoice(body.tool_choice);
 
-  if (stream && tools.length > 0) {
-    throw new AppError({
-      statusCode: 400,
-      code: "unsupported_feature",
-      type: "invalid_request_error",
-      message: "Tool calling is only supported for non-streaming requests in V1.",
-      param: "stream",
-    });
-  }
-
   return {
     model,
     messages,

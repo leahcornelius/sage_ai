@@ -3,7 +3,6 @@ import {
   extractAssistantTextFromCompletion,
 } from "../http/serializers/openai-chat.js";
 import { excerptText, objectKeys, textLength } from "../logging/safe-debug.js";
-import { AppError } from "../errors/app-error.js";
 
 /**
  * Composes Sage-specific context around standard OpenAI chat completion
@@ -21,7 +20,12 @@ function createChatService({
 }) {
   const serviceLogger = logger.child({ service: "chat-service" });
 
-  async function createChatCompletion({ requestBody, signal, logger: requestLogger }) {
+  async function createChatCompletion({
+    requestBody,
+    signal,
+    logger: requestLogger,
+    skipMemoryExtraction = false,
+  }) {
     const operationLogger = requestLogger || serviceLogger;
     await modelService.assertModelAvailable(requestBody.model, { logger: operationLogger });
 
@@ -94,13 +98,15 @@ function createChatService({
       },
       "Processed upstream chat completion response"
     );
-    scheduleMemoryExtraction({
-      memoryService,
-      userMessage: lastUserMessage,
-      assistantMessage,
-      model: requestBody.model,
-      logger: operationLogger,
-    });
+    if (!skipMemoryExtraction) {
+      scheduleMemoryExtraction({
+        memoryService,
+        userMessage: lastUserMessage,
+        assistantMessage,
+        model: requestBody.model,
+        logger: operationLogger,
+      });
+    }
 
     return completion;
   }
@@ -108,12 +114,27 @@ function createChatService({
   async function* streamChatCompletion({ requestBody, signal, logger: requestLogger }) {
     const operationLogger = requestLogger || serviceLogger;
     if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
-      throw new AppError({
-        statusCode: 400,
-        code: "unsupported_feature",
-        type: "invalid_request_error",
-        message: "Tool calling is only supported for non-streaming requests in V1.",
+      const completion = await createChatCompletion({
+        requestBody: {
+          ...requestBody,
+          stream: false,
+        },
+        signal,
+        logger: operationLogger,
+        skipMemoryExtraction: true,
       });
+
+      operationLogger.debug(
+        {
+          model: requestBody.model,
+          toolCount: requestBody.tools.length,
+          streamMode: "tool-fallback",
+        },
+        "Streaming request completed through tool execution fallback"
+      );
+
+      yield* completionToStreamChunks(completion);
+      return;
     }
 
     await modelService.assertModelAvailable(requestBody.model, { logger: operationLogger });
@@ -191,13 +212,13 @@ function createChatService({
       );
     } finally {
       if (completed) {
-        scheduleMemoryExtraction({
-          memoryService,
-          userMessage: lastUserMessage,
-          assistantMessage,
-          model: requestBody.model,
-          logger: operationLogger,
-        });
+        operationLogger.debug(
+          {
+            model: requestBody.model,
+            assistantMessageLength: assistantMessage.length,
+          },
+          "Streaming completion finished; memory extraction will run after SSE completes"
+        );
       }
     }
   }
@@ -350,6 +371,46 @@ function shouldExecuteTools({ requestBody, toolsEnabled }) {
   }
 
   return true;
+}
+
+function* completionToStreamChunks(completion) {
+  const created = Number.isInteger(completion?.created)
+    ? completion.created
+    : Math.floor(Date.now() / 1000);
+  const model = completion?.model;
+  const id = completion?.id || "chatcmpl-tool-stream";
+  const assistantContent = extractAssistantTextFromCompletion(completion);
+
+  yield {
+    id,
+    object: "chat.completion.chunk",
+    created,
+    model,
+    choices: [
+      {
+        index: 0,
+        delta: {
+          role: "assistant",
+          content: assistantContent,
+        },
+      },
+    ],
+  };
+
+  yield {
+    id,
+    object: "chat.completion.chunk",
+    created,
+    model,
+    choices: [
+      {
+        index: 0,
+        delta: {},
+        finish_reason: "stop",
+      },
+    ],
+    usage: completion?.usage,
+  };
 }
 
 function buildUpstreamRequest({ requestBody, promptService, memoryService, recalledMemories, logger }) {

@@ -10,6 +10,14 @@ Sage now runs as an OpenAI-compatible API server that layers Sage's long-term me
 - Streaming chat completions via SSE
 - Tool calling for non-stream chat completions
 
+## Documentation
+
+- Docs index: [`docs/README.md`](./docs/README.md)
+- API usage: [`docs/api.md`](./docs/api.md)
+- Architecture: [`docs/architecture.md`](./docs/architecture.md)
+- Internals: [`docs/internals.md`](./docs/internals.md)
+- Limitations and known issues: [`docs/limitations-and-known-issues.md`](./docs/limitations-and-known-issues.md)
+
 ## Requirements
 
 - Node.js 24+
@@ -69,7 +77,6 @@ Open WebUI will call `/v1/models` to discover available upstream models. If `SAG
 - Text-only message content
 - Long-term memory is globally shared across all requests
 - Old CLI conversation save/load flows are no longer part of the runtime
-- Tool execution is currently non-streaming only (`stream=true` with `tools` is rejected)
 
 ## Useful environment variables
 

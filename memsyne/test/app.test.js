@@ -110,7 +110,7 @@ test("POST /v1/chat/completions accepts tools for non-stream requests", async ()
   await app.close();
 });
 
-test("POST /v1/chat/completions rejects tools when stream=true", async () => {
+test("POST /v1/chat/completions accepts tools when stream=true", async () => {
   const app = await createTestApp();
   const response = await app.inject({
     method: "POST",
@@ -124,8 +124,9 @@ test("POST /v1/chat/completions rejects tools when stream=true", async () => {
     },
   });
 
-  assert.equal(response.statusCode, 400);
-  assert.equal(response.json().error.code, "unsupported_feature");
+  assert.equal(response.statusCode, 200);
+  assert.match(response.body, /data: .*chunk-1/);
+  assert.match(response.body, /data: \[DONE\]/);
   await app.close();
 });
 
@@ -163,6 +164,33 @@ test("POST /v1/chat/completions streams SSE chunks", async () => {
   assert.equal(response.statusCode, 200);
   assert.match(response.body, /data: .*chunk-1/);
   assert.match(response.body, /data: \[DONE\]/);
+  await app.close();
+});
+
+test("POST /v1/chat/completions triggers one memory extraction after streaming completes", async () => {
+  let extractionCalls = 0;
+  const app = await createTestApp({
+    memoryService: {
+      extractAndStoreMemories: async () => {
+        extractionCalls += 1;
+      },
+    },
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/chat/completions",
+    headers: authHeader,
+    payload: {
+      model: "gpt-5.2",
+      messages: [{ role: "user", content: "Hello" }],
+      stream: true,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(extractionCalls, 1);
   await app.close();
 });
 
