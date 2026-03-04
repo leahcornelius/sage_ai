@@ -93,7 +93,7 @@ test("POST /v1/chat/completions validates required fields", async () => {
   await app.close();
 });
 
-test("POST /v1/chat/completions rejects unsupported tools", async () => {
+test("POST /v1/chat/completions accepts tools for non-stream requests", async () => {
   const app = await createTestApp();
   const response = await app.inject({
     method: "POST",
@@ -102,7 +102,25 @@ test("POST /v1/chat/completions rejects unsupported tools", async () => {
     payload: {
       model: "gpt-5.2",
       messages: [{ role: "user", content: "Hello" }],
-      tools: [{ type: "function" }],
+      tools: [{ type: "function", function: { name: "get_memories", parameters: { type: "object" } } }],
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  await app.close();
+});
+
+test("POST /v1/chat/completions rejects tools when stream=true", async () => {
+  const app = await createTestApp();
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/chat/completions",
+    headers: authHeader,
+    payload: {
+      model: "gpt-5.2",
+      messages: [{ role: "user", content: "Hello" }],
+      stream: true,
+      tools: [{ type: "function", function: { name: "get_memories" } }],
     },
   });
 

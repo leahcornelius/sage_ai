@@ -15,6 +15,8 @@ async function registerChatCompletionRoutes(app) {
           model: requestBody.model,
           stream: requestBody.stream,
           messageCount: requestBody.messages.length,
+          toolCount: requestBody.tools.length,
+          toolChoice: requestBody.toolChoice || "auto",
         },
         "Handling chat completion request"
       );
@@ -25,6 +27,8 @@ async function registerChatCompletionRoutes(app) {
           messageCount: requestBody.messages.length,
           roles: roleSequence(requestBody.messages),
           upstreamOptionKeys: objectKeys(requestBody.upstreamOptions),
+          toolCount: requestBody.tools.length,
+          toolChoice: requestBody.toolChoice || "auto",
           lastUserMessageExcerpt: excerptText(requestBody.lastUserMessage),
         },
         "Validated chat completion request"

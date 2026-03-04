@@ -36,6 +36,15 @@ test("createConfig parses optional settings and defaults", () => {
   assert.equal(config.logging.filePath, path.resolve(process.cwd(), "logs/sage.log"));
   assert.equal(config.memory.topK, 7);
   assert.deepEqual(config.openai.modelAllowlist, ["gpt-4.1-mini", "gpt-5.2"]);
+  assert.equal(config.tools.enabled, true);
+  assert.equal(config.tools.maxRounds, 6);
+  assert.equal(config.tools.timeoutMs, 10000);
+  assert.equal(config.tools.maxParallelCalls, 4);
+  assert.equal(config.tools.memoryWriteEnabled, true);
+  assert.deepEqual(config.tools.mcpServers, []);
+  assert.equal(config.tools.webSearch.enabled, true);
+  assert.equal(config.tools.webSearch.maxResults, 5);
+  assert.equal(config.tools.webSearch.timeoutMs, 8000);
 });
 
 test("createConfig supports independent console and file log levels", () => {
@@ -77,4 +86,32 @@ test("createConfig rejects invalid log levels", () => {
       }),
     /must be one of/
   );
+});
+
+test("createConfig parses tool and MCP settings", () => {
+  const config = createConfig({
+    OPENAI_API_KEY: "openai-key",
+    SAGE_API_KEY: "sage-key",
+    SAGE_TOOLS_ENABLED: "false",
+    SAGE_TOOL_MAX_ROUNDS: "8",
+    SAGE_TOOL_TIMEOUT_MS: "15000",
+    SAGE_TOOL_MAX_PARALLEL_CALLS: "2",
+    SAGE_MEMORY_TOOL_WRITE_ENABLED: "false",
+    SAGE_MCP_SERVERS_JSON: '[{"name":"web","transport":"http","url":"https://mcp.example.com"}]',
+    SAGE_WEB_SEARCH_ENABLED: "false",
+    SAGE_WEB_SEARCH_API_URL: "https://search.example.com",
+    SAGE_WEB_SEARCH_API_KEY: "key",
+    SAGE_WEB_SEARCH_MAX_RESULTS: "9",
+    SAGE_WEB_SEARCH_TIMEOUT_MS: "9000",
+  });
+
+  assert.equal(config.tools.enabled, false);
+  assert.equal(config.tools.maxRounds, 8);
+  assert.equal(config.tools.timeoutMs, 15000);
+  assert.equal(config.tools.maxParallelCalls, 2);
+  assert.equal(config.tools.memoryWriteEnabled, false);
+  assert.equal(config.tools.mcpServers.length, 1);
+  assert.equal(config.tools.webSearch.enabled, false);
+  assert.equal(config.tools.webSearch.maxResults, 9);
+  assert.equal(config.tools.webSearch.timeoutMs, 9000);
 });

@@ -3,6 +3,7 @@ import {
   extractAssistantTextFromCompletion,
 } from "../http/serializers/openai-chat.js";
 import { excerptText, objectKeys, textLength } from "../logging/safe-debug.js";
+import { AppError } from "../errors/app-error.js";
 
 /**
  * Composes Sage-specific context around standard OpenAI chat completion
@@ -13,6 +14,9 @@ function createChatService({
   memoryService,
   promptService,
   modelService,
+  toolRegistry,
+  toolExecutor,
+  config,
   logger,
 }) {
   const serviceLogger = logger.child({ service: "chat-service" });
@@ -32,17 +36,40 @@ function createChatService({
       recalledMemories,
       logger: operationLogger,
     });
+    const executionContext = getExecutionContext({
+      requestBody,
+      toolRegistry,
+      logger: operationLogger,
+    });
+    if (executionContext.tools.length > 0) {
+      upstreamRequest.tools = executionContext.tools;
+    }
+    if (requestBody.toolChoice) {
+      upstreamRequest.tool_choice = requestBody.toolChoice;
+    }
     operationLogger.debug(
       {
         model: requestBody.model,
         stream: false,
         upstreamOptionKeys: objectKeys(requestBody.upstreamOptions),
+        toolCount: executionContext.tools.length,
       },
       "Dispatching upstream chat completion request"
     );
 
     const startedAt = Date.now();
-    const completion = await openaiClient.chat.completions.create(upstreamRequest, { signal });
+    const completion = shouldExecuteTools({ requestBody, toolsEnabled: executionContext.tools.length > 0 })
+      ? await runToolLoop({
+          upstreamRequest,
+          requestBody,
+          executionContext,
+          signal,
+          operationLogger,
+          openaiClient,
+          toolExecutor,
+          maxRounds: config.tools.maxRounds,
+        })
+      : await openaiClient.chat.completions.create(upstreamRequest, { signal });
     operationLogger.info(
       {
         model: requestBody.model,
@@ -80,6 +107,15 @@ function createChatService({
 
   async function* streamChatCompletion({ requestBody, signal, logger: requestLogger }) {
     const operationLogger = requestLogger || serviceLogger;
+    if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
+      throw new AppError({
+        statusCode: 400,
+        code: "unsupported_feature",
+        type: "invalid_request_error",
+        message: "Tool calling is only supported for non-streaming requests in V1.",
+      });
+    }
+
     await modelService.assertModelAvailable(requestBody.model, { logger: operationLogger });
 
     const lastUserMessage = requestBody.lastUserMessage;
@@ -170,6 +206,150 @@ function createChatService({
     createChatCompletion,
     streamChatCompletion,
   };
+}
+
+function getExecutionContext({ requestBody, toolRegistry, logger }) {
+  if (!toolRegistry) {
+    return {
+      tools: [],
+      handlers: new Map(),
+    };
+  }
+
+  return toolRegistry.getExecutionContext({
+    clientTools: requestBody.tools || [],
+    logger,
+  });
+}
+
+async function runToolLoop({
+  upstreamRequest,
+  requestBody,
+  executionContext,
+  signal,
+  operationLogger,
+  openaiClient,
+  toolExecutor,
+  maxRounds,
+}) {
+  const conversationMessages = Array.isArray(upstreamRequest.messages)
+    ? [...upstreamRequest.messages]
+    : [];
+  const basePayload = {
+    ...upstreamRequest,
+    messages: undefined,
+  };
+
+  for (let round = 0; round < maxRounds; round += 1) {
+    const completion = await openaiClient.chat.completions.create(
+      {
+        ...basePayload,
+        messages: conversationMessages,
+      },
+      { signal }
+    );
+
+    const assistantMessage = completion?.choices?.[0]?.message;
+    const toolCalls = normalizeToolCalls(assistantMessage?.tool_calls);
+    if (toolCalls.length === 0) {
+      operationLogger.debug(
+        {
+          model: requestBody.model,
+          round,
+          stopReason: "assistant_message_without_tool_calls",
+        },
+        "Tool loop completed"
+      );
+      return completion;
+    }
+
+    conversationMessages.push({
+      role: "assistant",
+      content: assistantMessage?.content ?? "",
+      ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+    });
+
+    operationLogger.debug(
+      {
+        model: requestBody.model,
+        round,
+        toolCallCount: toolCalls.length,
+      },
+      "Processing tool calls from model response"
+    );
+
+    const toolResults = await toolExecutor.executeToolCalls({
+      toolCalls,
+      executionContext,
+      requestLogger: operationLogger,
+    });
+
+    const handledResults = toolResults.filter((result) => result.handled);
+    if (handledResults.length === 0) {
+      operationLogger.debug(
+        {
+          model: requestBody.model,
+          round,
+          stopReason: "no_server_handlers_for_tool_calls",
+        },
+        "Tool loop returned raw tool calls to caller"
+      );
+      return completion;
+    }
+
+    for (const result of handledResults) {
+      conversationMessages.push({
+        role: "tool",
+        tool_call_id: result.toolCallId,
+        content: result.content,
+      });
+    }
+  }
+
+  throw new AppError({
+    statusCode: 400,
+    code: "invalid_request_error",
+    type: "invalid_request_error",
+    message: `Tool execution exceeded the maximum number of rounds (${maxRounds}).`,
+  });
+}
+
+function normalizeToolCalls(toolCalls) {
+  if (!Array.isArray(toolCalls)) {
+    return [];
+  }
+
+  return toolCalls
+    .map((toolCall) => {
+      const id = typeof toolCall?.id === "string" ? toolCall.id : "";
+      const name = typeof toolCall?.function?.name === "string" ? toolCall.function.name : "";
+      const rawArgs = toolCall?.function?.arguments;
+      if (!id || !name) {
+        return null;
+      }
+      return {
+        id,
+        type: "function",
+        function: {
+          name,
+          arguments:
+            typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs || {}),
+        },
+      };
+    })
+    .filter(Boolean);
+}
+
+function shouldExecuteTools({ requestBody, toolsEnabled }) {
+  if (!toolsEnabled) {
+    return false;
+  }
+
+  if (requestBody.toolChoice === "none") {
+    return false;
+  }
+
+  return true;
 }
 
 function buildUpstreamRequest({ requestBody, promptService, memoryService, recalledMemories, logger }) {

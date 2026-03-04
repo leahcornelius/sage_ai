@@ -71,6 +71,7 @@ function normalizeMessage(message) {
     content: message.content ?? "",
     refusal: message.refusal,
     tool_calls: message.tool_calls,
+    tool_call_id: message.tool_call_id,
   };
 }
 

@@ -8,6 +8,7 @@ Sage now runs as an OpenAI-compatible API server that layers Sage's long-term me
 - `GET /v1/models`
 - `POST /v1/chat/completions`
 - Streaming chat completions via SSE
+- Tool calling for non-stream chat completions
 
 ## Requirements
 
@@ -59,15 +60,16 @@ Open WebUI will call `/v1/models` to discover available upstream models. If `SAG
 - Clients must resend chat history in `messages` for every request.
 - Sage still recalls long-term memory for the latest user message.
 - After a response completes, Sage tries to extract and store new long-term memories in the background.
+- For non-stream chat requests, Sage can execute built-in tools and configured MCP tools in a bounded loop.
 
 ## V1 limitations
 
 - Chat Completions only
 - No `/v1/completions`, `/v1/responses`, or embeddings
-- No tools/function calling
 - Text-only message content
 - Long-term memory is globally shared across all requests
 - Old CLI conversation save/load flows are no longer part of the runtime
+- Tool execution is currently non-streaming only (`stream=true` with `tools` is rejected)
 
 ## Useful environment variables
 
@@ -75,3 +77,26 @@ Open WebUI will call `/v1/models` to discover available upstream models. If `SAG
 - `SAGE_MEMORY_EXTRACTION_MODEL`: separate model for memory extraction
 - `SAGE_CORS_ORIGIN`: enable CORS for a frontend origin
 - `OPENAI_BASE_URL`: point Sage at a compatible upstream if needed
+- `SAGE_TOOLS_ENABLED`: enable server tool support
+- `SAGE_MCP_SERVERS_JSON`: JSON array of MCP server definitions
+- `SAGE_WEB_SEARCH_*`: configure custom web search backend for `web_search`
+
+## MCP server config format
+
+`SAGE_MCP_SERVERS_JSON` expects a JSON array of server definitions. Example:
+
+```json
+[
+  {
+    "name": "web",
+    "transport": "http",
+    "url": "https://mcp.example.com",
+    "headers": {
+      "Authorization": "Bearer <token>"
+    },
+    "required": false
+  }
+]
+```
+
+Exposed MCP tools are namespaced as `mcp.<server>.<tool>`.

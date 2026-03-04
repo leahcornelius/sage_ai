@@ -7,6 +7,9 @@ import { createChatService } from "./services/chat-service.js";
 import { createMemoryService } from "./services/memory-service.js";
 import { createModelService } from "./services/model-service.js";
 import { createPromptService } from "./services/prompt-service.js";
+import { createMcpClientManager } from "./tools/mcp/mcp-client-manager.js";
+import { createToolRegistry } from "./tools/tool-registry.js";
+import { createToolExecutor } from "./tools/tool-executor.js";
 
 async function main() {
   let logger;
@@ -48,11 +51,26 @@ async function main() {
       config,
       logger,
     });
+    const mcpClientManager = createMcpClientManager({ config, logger });
+    await mcpClientManager.initialize();
+    const toolRegistry = createToolRegistry({
+      config,
+      logger,
+      memoryService,
+      mcpClientManager,
+    });
+    const toolExecutor = createToolExecutor({
+      config,
+      logger,
+    });
     const chatService = createChatService({
       openaiClient,
       memoryService,
       promptService,
       modelService,
+      toolRegistry,
+      toolExecutor,
+      config,
       logger,
     });
 

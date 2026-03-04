@@ -1,7 +1,7 @@
 import { AppError } from "../../errors/app-error.js";
 import { getLastUserMessageContent, normalizeMessages } from "./messages.js";
 
-const UNSUPPORTED_REQUEST_FIELDS = ["tools", "tool_choice", "functions", "function_call"];
+const UNSUPPORTED_REQUEST_FIELDS = ["functions", "function_call"];
 const PASSTHROUGH_FIELDS = [
   "temperature",
   "top_p",
@@ -63,12 +63,26 @@ function validateChatCompletionsRequest(body) {
   if (stream && body.stream_options !== undefined) {
     upstreamOptions.stream_options = body.stream_options;
   }
+  const tools = normalizeTools(body.tools);
+  const toolChoice = normalizeToolChoice(body.tool_choice);
+
+  if (stream && tools.length > 0) {
+    throw new AppError({
+      statusCode: 400,
+      code: "unsupported_feature",
+      type: "invalid_request_error",
+      message: "Tool calling is only supported for non-streaming requests in V1.",
+      param: "stream",
+    });
+  }
 
   return {
     model,
     messages,
     stream,
     upstreamOptions,
+    tools,
+    toolChoice,
     lastUserMessage: getLastUserMessageContent(messages),
   };
 }
@@ -80,6 +94,123 @@ function pickDefinedFields(source, fieldNames) {
     }
     return result;
   }, {});
+}
+
+function normalizeTools(value) {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new AppError({
+      statusCode: 400,
+      code: "invalid_request_error",
+      type: "invalid_request_error",
+      message: "tools must be an array.",
+      param: "tools",
+    });
+  }
+
+  return value.map((tool, index) => normalizeTool(tool, index));
+}
+
+function normalizeTool(tool, index) {
+  if (!tool || typeof tool !== "object" || Array.isArray(tool)) {
+    throw new AppError({
+      statusCode: 400,
+      code: "invalid_request_error",
+      type: "invalid_request_error",
+      message: `tools[${index}] must be an object.`,
+      param: `tools[${index}]`,
+    });
+  }
+
+  if (tool.type !== "function") {
+    throw new AppError({
+      statusCode: 400,
+      code: "invalid_request_error",
+      type: "invalid_request_error",
+      message: `tools[${index}].type must be \"function\".`,
+      param: `tools[${index}].type`,
+    });
+  }
+
+  const functionName = typeof tool.function?.name === "string" ? tool.function.name.trim() : "";
+  if (!functionName || !/^[A-Za-z0-9._-]{1,128}$/.test(functionName)) {
+    throw new AppError({
+      statusCode: 400,
+      code: "invalid_request_error",
+      type: "invalid_request_error",
+      message: `tools[${index}].function.name is invalid.`,
+      param: `tools[${index}].function.name`,
+    });
+  }
+
+  const normalized = {
+    type: "function",
+    function: {
+      name: functionName,
+      description:
+        typeof tool.function?.description === "string" && tool.function.description.trim()
+          ? tool.function.description.trim()
+          : undefined,
+      parameters:
+        tool.function?.parameters && typeof tool.function.parameters === "object" && !Array.isArray(tool.function.parameters)
+          ? tool.function.parameters
+          : { type: "object", properties: {} },
+    },
+  };
+
+  return normalized;
+}
+
+function normalizeToolChoice(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    if (["none", "auto", "required"].includes(value)) {
+      return value;
+    }
+
+    throw new AppError({
+      statusCode: 400,
+      code: "invalid_request_error",
+      type: "invalid_request_error",
+      message: "tool_choice must be one of none, auto, required, or a function selection object.",
+      param: "tool_choice",
+    });
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AppError({
+      statusCode: 400,
+      code: "invalid_request_error",
+      type: "invalid_request_error",
+      message: "tool_choice must be one of none, auto, required, or a function selection object.",
+      param: "tool_choice",
+    });
+  }
+
+  const type = typeof value.type === "string" ? value.type.trim() : "";
+  const functionName = typeof value.function?.name === "string" ? value.function.name.trim() : "";
+  if (type !== "function" || !functionName) {
+    throw new AppError({
+      statusCode: 400,
+      code: "invalid_request_error",
+      type: "invalid_request_error",
+      message: "tool_choice function selection must include type=\"function\" and function.name.",
+      param: "tool_choice",
+    });
+  }
+
+  return {
+    type: "function",
+    function: {
+      name: functionName,
+    },
+  };
 }
 
 export { validateChatCompletionsRequest };

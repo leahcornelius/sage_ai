@@ -161,7 +161,68 @@ function createMemoryService({ mnemosyneClient, openaiClient, config, logger }) 
     recallRelevantMemories,
     formatMemoryContext,
     extractAndStoreMemories,
+    getMemoriesForTool,
+    addMemoryFromTool,
   };
+
+  async function getMemoriesForTool({ query, topK, logger: requestLogger }) {
+    const operationLogger = requestLogger || serviceLogger;
+    const safeTopK =
+      Number.isInteger(topK) && topK >= 1 && topK <= 20 ? topK : config.memory.topK;
+
+    const recalled = await mnemosyneClient.recall({
+      query,
+      topK: safeTopK,
+    });
+
+    operationLogger.debug(
+      {
+        queryLength: textLength(query),
+        topK: safeTopK,
+        recallCount: Array.isArray(recalled) ? recalled.length : 0,
+      },
+      "Retrieved memories for tool"
+    );
+
+    const entries = Array.isArray(recalled) ? recalled : [];
+    return entries.map((memory) => {
+      const entry = memory?.entry || {};
+      return {
+        text: typeof entry.text === "string" ? entry.text : "",
+        confidence_tag: entry.confidenceTag || null,
+        memory_type: entry.memoryType || null,
+        decay_status: entry.decayStatus || null,
+        updated_at: entry.updatedAt || null,
+      };
+    });
+  }
+
+  async function addMemoryFromTool({ text, importance, category, eventTime, logger: requestLogger }) {
+    const operationLogger = requestLogger || serviceLogger;
+    await mnemosyneClient.store({
+      text,
+      ...(importance !== null && importance !== undefined ? { importance } : {}),
+      ...(category ? { category } : {}),
+      ...(eventTime ? { eventTime } : {}),
+    });
+
+    operationLogger.info(
+      {
+        textLength: textLength(text),
+        importance,
+        category,
+        hasEventTime: Boolean(eventTime),
+      },
+      "Stored memory from tool call"
+    );
+
+    return {
+      text,
+      importance: importance ?? null,
+      category: category ?? null,
+      event_time: eventTime ?? null,
+    };
+  }
 }
 
 function buildMemoryExtractionPrompt() {

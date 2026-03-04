@@ -82,6 +82,33 @@ function createConfig(env = process.env) {
         optionalString(env.SAGE_SYSTEM_PROMPT_PATH) || "./system_prompt.yaml"
       ),
     },
+    tools: {
+      enabled: parseBoolean(env.SAGE_TOOLS_ENABLED, true),
+      maxRounds: parsePositiveInteger(env.SAGE_TOOL_MAX_ROUNDS, 6, "SAGE_TOOL_MAX_ROUNDS"),
+      timeoutMs: parsePositiveInteger(env.SAGE_TOOL_TIMEOUT_MS, 10_000, "SAGE_TOOL_TIMEOUT_MS"),
+      maxParallelCalls: parsePositiveInteger(
+        env.SAGE_TOOL_MAX_PARALLEL_CALLS,
+        4,
+        "SAGE_TOOL_MAX_PARALLEL_CALLS"
+      ),
+      memoryWriteEnabled: parseBoolean(env.SAGE_MEMORY_TOOL_WRITE_ENABLED, true),
+      mcpServers: parseJsonArray(env.SAGE_MCP_SERVERS_JSON, "SAGE_MCP_SERVERS_JSON"),
+      webSearch: {
+        enabled: parseBoolean(env.SAGE_WEB_SEARCH_ENABLED, true),
+        apiUrl: optionalString(env.SAGE_WEB_SEARCH_API_URL),
+        apiKey: optionalString(env.SAGE_WEB_SEARCH_API_KEY),
+        maxResults: parsePositiveInteger(
+          env.SAGE_WEB_SEARCH_MAX_RESULTS,
+          5,
+          "SAGE_WEB_SEARCH_MAX_RESULTS"
+        ),
+        timeoutMs: parsePositiveInteger(
+          env.SAGE_WEB_SEARCH_TIMEOUT_MS,
+          8_000,
+          "SAGE_WEB_SEARCH_TIMEOUT_MS"
+        ),
+      },
+    },
   };
 }
 
@@ -172,6 +199,36 @@ function parseLogLevel(value, name) {
     type: "server_error",
     message: `${name} must be one of: fatal, error, warn, info, debug, trace, silent.`,
   });
+}
+
+function parseJsonArray(value, name) {
+  const raw = optionalString(value);
+  if (!raw) {
+    return [];
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new AppError({
+      statusCode: 500,
+      code: "config_error",
+      type: "server_error",
+      message: `${name} must be valid JSON.`,
+    });
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new AppError({
+      statusCode: 500,
+      code: "config_error",
+      type: "server_error",
+      message: `${name} must be a JSON array.`,
+    });
+  }
+
+  return parsed;
 }
 
 export { createConfig };

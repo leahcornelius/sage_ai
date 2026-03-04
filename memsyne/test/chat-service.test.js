@@ -114,3 +114,106 @@ test("chat service streams chunks and schedules memory extraction after completi
   assert.equal(chunks.length, 2);
   assert.equal(extractionCalls, 1);
 });
+
+test("chat service executes tool calls in non-stream mode", async () => {
+  const upstreamCalls = [];
+  const service = createChatService({
+    openaiClient: {
+      chat: {
+        completions: {
+          create: async (payload) => {
+            upstreamCalls.push(payload);
+            if (upstreamCalls.length === 1) {
+              return {
+                id: "chatcmpl-tool-1",
+                object: "chat.completion",
+                created: 1,
+                model: payload.model,
+                choices: [
+                  {
+                    index: 0,
+                    message: {
+                      role: "assistant",
+                      content: "",
+                      tool_calls: [
+                        {
+                          id: "call_1",
+                          type: "function",
+                          function: {
+                            name: "get_memories",
+                            arguments: "{\"query\":\"color\"}",
+                          },
+                        },
+                      ],
+                    },
+                    finish_reason: "tool_calls",
+                  },
+                ],
+              };
+            }
+
+            return {
+              id: "chatcmpl-tool-2",
+              object: "chat.completion",
+              created: 1,
+              model: payload.model,
+              choices: [{ index: 0, message: { role: "assistant", content: "Done." }, finish_reason: "stop" }],
+            };
+          },
+        },
+      },
+    },
+    memoryService: {
+      recallRelevantMemories: async () => [],
+      formatMemoryContext: () => "Memory context block",
+      extractAndStoreMemories: async () => 0,
+    },
+    promptService: {
+      getActiveSystemPrompt: () => "Base system prompt",
+    },
+    modelService: {
+      assertModelAvailable: async () => {},
+    },
+    toolRegistry: {
+      getExecutionContext: () => ({
+        tools: [{ type: "function", function: { name: "get_memories", parameters: { type: "object" } } }],
+        handlers: new Map([["get_memories", { source: "builtin", handler: async () => ({ memories: [] }) }]]),
+      }),
+    },
+    toolExecutor: {
+      executeToolCalls: async () => [
+        {
+          toolCallId: "call_1",
+          toolName: "get_memories",
+          handled: true,
+          content: "{\"ok\":true,\"data\":{\"memories\":[]}}",
+        },
+      ],
+    },
+    config: {
+      tools: {
+        maxRounds: 6,
+      },
+    },
+    logger,
+  });
+
+  const completion = await service.createChatCompletion({
+    requestBody: {
+      model: "gpt-5.2",
+      messages: [{ role: "user", content: "What do I like?" }],
+      stream: false,
+      upstreamOptions: {},
+      tools: [],
+      toolChoice: "auto",
+      lastUserMessage: "What do I like?",
+    },
+    signal: AbortSignal.timeout(1000),
+    logger,
+  });
+
+  assert.equal(completion.id, "chatcmpl-tool-2");
+  assert.equal(upstreamCalls.length, 2);
+  assert.equal(upstreamCalls[1].messages.at(-1).role, "tool");
+  assert.equal(upstreamCalls[1].messages.at(-1).tool_call_id, "call_1");
+});
