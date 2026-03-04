@@ -90,7 +90,9 @@ Open WebUI will call `/v1/models` to discover available upstream models. If `SAG
 
 ## MCP server config format
 
-`SAGE_MCP_SERVERS_JSON` expects a JSON array of server definitions. Example:
+`SAGE_MCP_SERVERS_JSON` expects a JSON array of server definitions. Both `http` and `stdio` transports are supported.
+
+HTTP example:
 
 ```json
 [
@@ -105,5 +107,24 @@ Open WebUI will call `/v1/models` to discover available upstream models. If `SAG
   }
 ]
 ```
+
+Stdio example (Brave MCP):
+
+```json
+[
+  {
+    "name": "brave",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+    "env": {
+      "BRAVE_API_KEY": "<token>"
+    },
+    "required": false
+  }
+]
+```
+
+If `required` is `true` and the server cannot initialize, Sage startup will fail. If `required` is `false`, Sage logs a warning and continues.
 
 Exposed MCP tools are namespaced as `mcp.<server>.<tool>`.

@@ -55,6 +55,8 @@ function createLogger(config) {
           "webSearch.apiKey",
           "headers.authorization",
           "headers.Authorization",
+          "tools.mcpServers.*.env",
+          "tools.mcpServers.*.env.*",
           "debug.requestBody",
           "debug.messages",
         ],

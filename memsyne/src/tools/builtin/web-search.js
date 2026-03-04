@@ -42,7 +42,8 @@ function createWebSearchHandler({ config }) {
         statusCode: 500,
         code: "config_error",
         type: "server_error",
-        message: "web_search is enabled but SAGE_WEB_SEARCH_API_URL or SAGE_WEB_SEARCH_API_KEY is missing.",
+        message:
+          "web_search is enabled but SAGE_WEB_SEARCH_API_URL or SAGE_WEB_SEARCH_API_KEY is missing.",
       });
     }
 
@@ -52,13 +53,16 @@ function createWebSearchHandler({ config }) {
         statusCode: 400,
         code: "invalid_tool_arguments",
         type: "invalid_request_error",
-        message: "web_search requires query length between 1 and 500 characters.",
+        message:
+          "web_search requires query length between 1 and 500 characters.",
       });
     }
 
     const parsedMaxResults = Number.parseInt(args.max_results, 10);
     const maxResults =
-      Number.isInteger(parsedMaxResults) && parsedMaxResults >= 1 && parsedMaxResults <= 10
+      Number.isInteger(parsedMaxResults) &&
+      parsedMaxResults >= 1 &&
+      parsedMaxResults <= 10
         ? parsedMaxResults
         : config.tools.webSearch.maxResults;
 
@@ -77,6 +81,16 @@ function createWebSearchHandler({ config }) {
     });
 
     if (!response.ok) {
+      logger.error(
+        {
+          apiUrl: config.tools.webSearch.apiUrl,
+          requestBody: { query, max_results: maxResults },
+          responseStatus: response.status,
+          responseStatusText: response.statusText,
+          responseBody: await response.clone().text(),
+        },
+        "web_search provider error"
+      );
       throw new AppError({
         statusCode: 502,
         code: "upstream_error",
@@ -107,15 +121,18 @@ function normalizeSearchResults(payload, maxResults) {
   const source = Array.isArray(payload?.results)
     ? payload.results
     : Array.isArray(payload?.data)
-      ? payload.data
-      : Array.isArray(payload)
-        ? payload
-        : [];
+    ? payload.data
+    : Array.isArray(payload)
+    ? payload
+    : [];
 
   return source.slice(0, maxResults).map((item) => ({
     title: excerptText(String(item?.title || item?.name || ""), 200),
     url: String(item?.url || item?.link || ""),
-    snippet: excerptText(String(item?.snippet || item?.description || item?.content || ""), 500),
+    snippet: excerptText(
+      String(item?.snippet || item?.description || item?.content || ""),
+      500
+    ),
   }));
 }
 

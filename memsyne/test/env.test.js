@@ -97,7 +97,7 @@ test("createConfig parses tool and MCP settings", () => {
     SAGE_TOOL_TIMEOUT_MS: "15000",
     SAGE_TOOL_MAX_PARALLEL_CALLS: "2",
     SAGE_MEMORY_TOOL_WRITE_ENABLED: "false",
-    SAGE_MCP_SERVERS_JSON: '[{"name":"web","transport":"http","url":"https://mcp.example.com"}]',
+    SAGE_MCP_SERVERS_JSON: '[{"name":"web","transport":"http","url":"https://mcp.example.com"},{"name":"brave","transport":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-brave-search"],"env":{"BRAVE_API_KEY":"x"}}]',
     SAGE_WEB_SEARCH_ENABLED: "false",
     SAGE_WEB_SEARCH_API_URL: "https://search.example.com",
     SAGE_WEB_SEARCH_API_KEY: "key",
@@ -110,7 +110,7 @@ test("createConfig parses tool and MCP settings", () => {
   assert.equal(config.tools.timeoutMs, 15000);
   assert.equal(config.tools.maxParallelCalls, 2);
   assert.equal(config.tools.memoryWriteEnabled, false);
-  assert.equal(config.tools.mcpServers.length, 1);
+  assert.equal(config.tools.mcpServers.length, 2);
   assert.equal(config.tools.webSearch.enabled, false);
   assert.equal(config.tools.webSearch.maxResults, 9);
   assert.equal(config.tools.webSearch.timeoutMs, 9000);

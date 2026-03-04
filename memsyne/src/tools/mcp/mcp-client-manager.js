@@ -1,25 +1,52 @@
 import { AppError } from "../../errors/app-error.js";
 import { mapMcpToolsToOpenAiTools, parseNamespacedToolName } from "./mcp-tool-adapter.js";
+import { createMcpHttpClient } from "./mcp-http-client.js";
+import { createMcpStdioClient } from "./mcp-stdio-client.js";
 
-function createMcpClientManager({ config, logger }) {
+function createMcpClientManager({
+  config,
+  logger,
+  httpClientFactory = createMcpHttpClient,
+  stdioClientFactory = createMcpStdioClient,
+}) {
   const managerLogger = logger.child({ component: "mcp-client-manager" });
   const servers = new Map();
 
   async function initialize() {
     for (const definition of config.tools.mcpServers) {
-      const normalized = normalizeServerDefinition(definition);
-      if (!normalized) {
-        continue;
+      let normalized;
+      try {
+        normalized = normalizeServerDefinition(definition);
+      } catch (error) {
+        throw new AppError({
+          statusCode: 500,
+          code: "config_error",
+          type: "server_error",
+          message: "Invalid SAGE_MCP_SERVERS_JSON entry.",
+          cause: error,
+        });
       }
 
+      const transportClient = createTransportClient({
+        normalized,
+        timeoutMs: config.tools.timeoutMs,
+        managerLogger,
+        httpClientFactory,
+        stdioClientFactory,
+      });
+
       try {
-        const tools = await listServerTools(normalized, config.tools.timeoutMs);
+        await transportClient.connect();
+        const tools = await transportClient.listTools();
+
         servers.set(normalized.name, {
           ...normalized,
+          transportClient,
           tools,
           healthy: true,
           lastError: null,
         });
+
         managerLogger.info(
           {
             serverName: normalized.name,
@@ -44,9 +71,16 @@ function createMcpClientManager({ config, logger }) {
           {
             err: error,
             serverName: normalized.name,
+            transport: normalized.transport,
           },
           `${message}; continuing without this server`
         );
+
+        await safeCloseTransport({
+          transportClient,
+          managerLogger,
+          serverName: normalized.name,
+        });
       }
     }
   }
@@ -85,109 +119,159 @@ function createMcpClientManager({ config, logger }) {
       {
         serverName: server.name,
         toolName: parsed.toolName,
+        transport: server.transport,
       },
       "Invoking MCP tool"
     );
 
-    const response = await callServerTool({
-      server,
-      toolName: parsed.toolName,
-      argumentsObject: args,
-      timeoutMs: config.tools.timeoutMs,
-    });
+    return server.transportClient.callTool(parsed.toolName, args);
+  }
 
-    return response;
+  async function close() {
+    for (const server of servers.values()) {
+      await safeCloseTransport({
+        transportClient: server.transportClient,
+        managerLogger,
+        serverName: server.name,
+      });
+    }
+    servers.clear();
   }
 
   return {
     initialize,
     getToolDefinitions,
     invoke,
+    close,
   };
+}
+
+function createTransportClient({
+  normalized,
+  timeoutMs,
+  managerLogger,
+  httpClientFactory,
+  stdioClientFactory,
+}) {
+  if (normalized.transport === "http") {
+    return httpClientFactory({
+      server: normalized,
+      timeoutMs,
+    });
+  }
+
+  if (normalized.transport === "stdio") {
+    return stdioClientFactory({
+      server: normalized,
+      timeoutMs,
+      logger: managerLogger,
+    });
+  }
+
+  throw new Error(`Unsupported MCP transport "${normalized.transport}".`);
 }
 
 function normalizeServerDefinition(server) {
   if (!server || typeof server !== "object" || Array.isArray(server)) {
-    return null;
+    throw new Error("MCP server entry must be an object.");
   }
 
-  const name = typeof server.name === "string" ? server.name.trim() : "";
-  const url = typeof server.url === "string" ? server.url.trim() : "";
-  if (!name || !url) {
-    return null;
+  const name = requiredTrimmedString(server.name, "name");
+  const transport = requiredTrimmedString(server.transport, "transport").toLowerCase();
+  const required = server.required === true;
+
+  if (transport === "http") {
+    return normalizeHttpServerDefinition(server, { name, transport, required });
   }
 
-  const headers = server.headers && typeof server.headers === "object" ? server.headers : {};
-  const transport = typeof server.transport === "string" ? server.transport.trim().toLowerCase() : "http";
-  if (transport !== "http") {
-    return null;
+  if (transport === "stdio") {
+    return normalizeStdioServerDefinition(server, { name, transport, required });
   }
 
+  throw new Error("transport must be one of: http, stdio.");
+}
+
+function normalizeHttpServerDefinition(server, base) {
+  const url = requiredTrimmedString(server.url, "url");
+  const headers = normalizeRecordOfStrings(server.headers, "headers");
   return {
-    name,
-    transport,
+    ...base,
     url,
     headers,
-    required: server.required === true,
   };
 }
 
-async function listServerTools(server, timeoutMs) {
-  const response = await sendJsonRpc({
-    server,
-    method: "tools/list",
-    params: {},
-    timeoutMs,
-  });
-  return Array.isArray(response?.tools) ? response.tools : [];
+function normalizeStdioServerDefinition(server, base) {
+  const command = requiredTrimmedString(server.command, "command");
+  const args = normalizeStringArray(server.args, "args");
+  const cwd =
+    server.cwd === undefined || server.cwd === null ? null : requiredTrimmedString(server.cwd, "cwd");
+  const env = normalizeRecordOfStrings(server.env, "env");
+
+  return {
+    ...base,
+    command,
+    args,
+    cwd,
+    env,
+  };
 }
 
-async function callServerTool({ server, toolName, argumentsObject, timeoutMs }) {
-  const response = await sendJsonRpc({
-    server,
-    method: "tools/call",
-    params: {
-      name: toolName,
-      arguments: argumentsObject || {},
-    },
-    timeoutMs,
-  });
-
-  return response;
+function requiredTrimmedString(value, field) {
+  if (typeof value !== "string") {
+    throw new Error(`MCP server ${field} must be a string.`);
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`MCP server ${field} is required.`);
+  }
+  return trimmed;
 }
 
-async function sendJsonRpc({ server, method, params, timeoutMs }) {
-  const signal = AbortSignal.timeout(timeoutMs);
-  const requestId = cryptoRandomId();
-  const response = await fetch(server.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...server.headers,
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: requestId,
-      method,
-      params,
-    }),
-    signal,
-  });
+function normalizeStringArray(value, field) {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error(`MCP server ${field} must be an array of strings.`);
+  }
+  return value;
+}
 
-  if (!response.ok) {
-    throw new Error(`MCP server returned HTTP ${response.status}.`);
+function normalizeRecordOfStrings(value, field) {
+  if (value === undefined || value === null) {
+    return {};
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`MCP server ${field} must be an object.`);
   }
 
-  const payload = await response.json();
-  if (payload?.error) {
-    throw new Error(payload.error.message || "MCP server returned an error.");
+  const result = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== "string") {
+      throw new Error(`MCP server ${field}.${key} must be a string.`);
+    }
+    result[key] = entry;
+  }
+  return result;
+}
+
+async function safeCloseTransport({ transportClient, managerLogger, serverName }) {
+  if (!transportClient || typeof transportClient.close !== "function") {
+    return;
   }
 
-  return payload?.result || {};
+  try {
+    await transportClient.close();
+  } catch (error) {
+    managerLogger.warn(
+      {
+        err: error,
+        serverName,
+      },
+      "Failed to close MCP transport cleanly"
+    );
+  }
 }
 
-function cryptoRandomId() {
-  return `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-}
-
-export { createMcpClientManager };
+export { createMcpClientManager, normalizeServerDefinition };

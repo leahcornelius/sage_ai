@@ -13,6 +13,7 @@ import { createToolExecutor } from "./tools/tool-executor.js";
 
 async function main() {
   let logger;
+  let mcpClientManager;
 
   try {
     const config = createConfig();
@@ -51,7 +52,7 @@ async function main() {
       config,
       logger,
     });
-    const mcpClientManager = createMcpClientManager({ config, logger });
+    mcpClientManager = createMcpClientManager({ config, logger });
     await mcpClientManager.initialize();
     const toolRegistry = createToolRegistry({
       config,
@@ -85,7 +86,7 @@ async function main() {
       },
     });
 
-    const shutdown = createShutdownHandler(app, logger);
+    const shutdown = createShutdownHandler(app, logger, mcpClientManager);
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
 
@@ -96,6 +97,9 @@ async function main() {
 
     logger.info({ address: app.server.address() }, "Sage OpenAI-compatible API server is listening");
   } catch (error) {
+    if (mcpClientManager) {
+      await mcpClientManager.close();
+    }
     if (logger) {
       logger.fatal({ err: error }, "Sage server failed to start");
       await flushLogger(logger);
@@ -106,7 +110,7 @@ async function main() {
   }
 }
 
-function createShutdownHandler(app, logger) {
+function createShutdownHandler(app, logger, mcpClientManager) {
   let shuttingDown = false;
 
   return async function shutdown(signal) {
@@ -118,6 +122,7 @@ function createShutdownHandler(app, logger) {
     logger.info({ signal }, "Shutting down Sage server");
 
     try {
+      await mcpClientManager?.close();
       await app.close();
       logger.info("Sage server shutdown complete");
       await flushLogger(logger);
