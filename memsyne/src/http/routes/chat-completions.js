@@ -184,6 +184,9 @@ function getChunkTextLength(chunk) {
   if (!delta || typeof delta !== "object") {
     return 0;
   }
+  if (delta.role === "tool") {
+    return 0;
+  }
   return typeof delta.content === "string" ? delta.content.length : 0;
 }
 

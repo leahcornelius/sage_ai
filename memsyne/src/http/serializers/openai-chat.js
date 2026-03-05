@@ -85,6 +85,7 @@ function normalizeDelta(delta) {
     content: delta.content,
     refusal: delta.refusal,
     tool_calls: delta.tool_calls,
+    tool_call_id: delta.tool_call_id,
   };
 }
 
@@ -94,7 +95,12 @@ function extractAssistantTextFromCompletion(completion) {
 
 function extractAssistantTextFromChunk(chunk) {
   return (chunk?.choices || [])
-    .map((choice) => extractTextContent(choice?.delta?.content))
+    .map((choice) => {
+      if (choice?.delta?.role === "tool") {
+        return "";
+      }
+      return extractTextContent(choice?.delta?.content);
+    })
     .join("");
 }
 

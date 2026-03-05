@@ -4,6 +4,7 @@ import {
 } from "../http/serializers/openai-chat.js";
 import { excerptText, objectKeys, textLength } from "../logging/safe-debug.js";
 import { AppError } from "../errors/app-error.js";
+import { createSyntheticId } from "../utils/ids.js";
 
 /**
  * Composes Sage-specific context around standard OpenAI chat completion
@@ -377,13 +378,20 @@ async function* runStreamingToolLoop({
       assistantContent: "",
       streamedToolCalls: [],
     };
+    const roundChunks = [];
     for await (const chunk of stream) {
-      onChunk?.(chunk);
       applyStreamChunkToAggregate(chunk, aggregate);
-      yield chunk;
+      roundChunks.push(chunk);
     }
 
     const toolCalls = normalizeStreamedToolCalls(aggregate.streamedToolCalls);
+    if (toolCalls.length === 0) {
+      for (const chunk of roundChunks) {
+        onChunk?.(chunk);
+        yield chunk;
+      }
+    }
+
     conversationMessages.push({
       role: "assistant",
       content: aggregate.assistantContent,
@@ -416,6 +424,16 @@ async function* runStreamingToolLoop({
       executionContext,
       requestLogger: operationLogger,
     });
+    const toolResultById = new Map(toolResults.map((result) => [result.toolCallId, result]));
+
+    for (const chunk of buildSyntheticToolCallChunks({
+      toolCalls,
+      toolResultById,
+      model: requestBody.model,
+    })) {
+      onChunk?.(chunk);
+      yield chunk;
+    }
 
     const handledResults = toolResults.filter((result) => result.handled);
     if (handledResults.length === 0) {
@@ -465,7 +483,13 @@ function applyStreamChunkToAggregate(chunk, aggregate) {
 
 function mergeToolCallDeltas(current, deltas) {
   for (const delta of deltas) {
-    const index = Number.isInteger(delta?.index) && delta.index >= 0 ? delta.index : current.length;
+    let index = Number.isInteger(delta?.index) && delta.index >= 0 ? delta.index : -1;
+    if (index < 0 && typeof delta?.id === "string" && delta.id) {
+      index = current.findIndex((item) => item?.id === delta.id);
+    }
+    if (index < 0) {
+      index = current.length;
+    }
     const existing = current[index] || {
       id: "",
       type: "function",
@@ -483,7 +507,7 @@ function mergeToolCallDeltas(current, deltas) {
     }
     if (delta?.function && typeof delta.function === "object") {
       if (typeof delta.function.name === "string" && delta.function.name) {
-        existing.function.name += delta.function.name;
+        existing.function.name = delta.function.name;
       }
       if (typeof delta.function.arguments === "string" && delta.function.arguments) {
         existing.function.arguments += delta.function.arguments;
@@ -517,6 +541,201 @@ function normalizeStreamedToolCalls(toolCalls) {
       };
     })
     .filter(Boolean);
+}
+
+function buildSyntheticToolCallChunks({ toolCalls, toolResultById, model }) {
+  const created = Math.floor(Date.now() / 1000);
+  const chunks = [];
+
+  for (let index = 0; index < toolCalls.length; index += 1) {
+    const toolCall = toolCalls[index];
+    const result = toolResultById.get(toolCall.id) || null;
+    const argumentsObject = parseJsonObject(toolCall.function.arguments);
+    const enrichedArguments = enrichToolArgumentsForDisplay({
+      toolName: toolCall.function.name,
+      argumentsObject,
+      result,
+    });
+    const summary = summarizeToolResultForStream({
+      toolCall,
+      resultContent: result?.content || "{}",
+    });
+    const serializedArguments = JSON.stringify(enrichedArguments);
+
+    chunks.push({
+      id: createSyntheticId("chatcmplchunk"),
+      object: "chat.completion.chunk",
+      created,
+      model,
+      choices: [
+        {
+          index: 0,
+          delta: {
+            ...(index === 0 ? { role: "assistant" } : {}),
+            tool_calls: [
+              {
+                index,
+                id: toolCall.id,
+                type: "function",
+                function: {
+                  name: toolCall.function.name,
+                  arguments: serializedArguments,
+                },
+                output: summary.output || null,
+                error: summary.error || null,
+              },
+            ],
+          },
+        },
+      ],
+    });
+  }
+
+  chunks.push({
+    id: createSyntheticId("chatcmplchunk"),
+    object: "chat.completion.chunk",
+    created,
+    model,
+    choices: [
+      {
+        index: 0,
+        delta: {},
+        finish_reason: "tool_calls",
+      },
+    ],
+  });
+
+  return chunks;
+}
+
+function summarizeToolResultForStream({ toolCall, resultContent }) {
+  const parsedResult = parseJsonObject(resultContent);
+  const inputArgs = parseJsonObject(toolCall?.function?.arguments);
+  const data = parsedResult?.data;
+  const summary = {
+    ok: Boolean(parsedResult?.ok),
+    input: sanitizeObjectForToolStream(inputArgs, 260),
+  };
+
+  if (summary.ok) {
+    summary.output = summarizeToolOutputData(data);
+  } else {
+    summary.error = {
+      code: parsedResult?.error?.code || "tool_execution_failed",
+      message: excerptText(String(parsedResult?.error?.message || "Tool execution failed."), 260),
+    };
+  }
+
+  return summary;
+}
+
+function summarizeToolOutputData(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return sanitizeValueForToolStream(data, 260);
+  }
+
+  const summary = {};
+  if (typeof data.url === "string") {
+    summary.url = data.url;
+  }
+  if (typeof data.document_id === "string") {
+    summary.document_id = data.document_id;
+  }
+  if (typeof data.source === "string") {
+    summary.source = data.source;
+  }
+  if (typeof data.result_count === "number") {
+    summary.result_count = data.result_count;
+  }
+  if (typeof data.match_count === "number") {
+    summary.match_count = data.match_count;
+  }
+  if (typeof data.text_length === "number") {
+    summary.text_length = data.text_length;
+  }
+  if (typeof data.preview === "string") {
+    summary.preview_excerpt = excerptText(data.preview, 260);
+  }
+  if (typeof data.text === "string") {
+    summary.text_excerpt = excerptText(data.text, 260);
+  }
+
+  if (Array.isArray(data.results)) {
+    summary.results = data.results.slice(0, 5).map((item) => ({
+      result_id: item?.result_id || null,
+      title: excerptText(String(item?.title || ""), 100),
+      url: typeof item?.url === "string" ? item.url : null,
+      snippet: excerptText(String(item?.snippet || ""), 140),
+    }));
+  }
+
+  if (Array.isArray(data.matches)) {
+    summary.matches = data.matches.slice(0, 3).map((item) => ({
+      offset: item?.offset ?? null,
+      excerpt: excerptText(String(item?.excerpt || ""), 200),
+    }));
+  }
+
+  if (Object.keys(summary).length === 0) {
+    return sanitizeObjectForToolStream(data, 200);
+  }
+  return summary;
+}
+
+function enrichToolArgumentsForDisplay({ toolName, argumentsObject, result }) {
+  const outputData = parseJsonObject(result?.content)?.data;
+  if (toolName === "get_url_content" && outputData && typeof outputData === "object") {
+    const enriched = { ...argumentsObject };
+    if (!enriched.url && typeof outputData.url === "string") {
+      enriched.url = outputData.url;
+    }
+    if (typeof outputData.source === "string" && enriched.source === undefined) {
+      enriched.source = outputData.source;
+    }
+    return enriched;
+  }
+
+  return argumentsObject;
+}
+
+function sanitizeObjectForToolStream(value, maxStringLength) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const out = {};
+  for (const [key, entry] of Object.entries(value)) {
+    out[key] = sanitizeValueForToolStream(entry, maxStringLength);
+  }
+  return out;
+}
+
+function sanitizeValueForToolStream(value, maxStringLength) {
+  if (typeof value === "string") {
+    return excerptText(value, maxStringLength);
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 6).map((item) => sanitizeValueForToolStream(item, 120));
+  }
+  if (value && typeof value === "object") {
+    return sanitizeObjectForToolStream(value, 120);
+  }
+  return value ?? null;
+}
+
+function parseJsonObject(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 function normalizeToolCalls(toolCalls) {

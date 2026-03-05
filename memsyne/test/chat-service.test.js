@@ -340,6 +340,8 @@ test("chat service streams tool-enabled requests with native multi-round executi
   assert.equal(chunks.length, 4);
   assert.equal(chunks[0].choices[0].delta.tool_calls[0].function.name, "get_memories");
   assert.equal(chunks[0].choices[0].delta.role, "assistant");
+  assert.equal(chunks[0].choices[0].delta.tool_calls[0].output.memories.length, 0);
+  assert.equal(chunks[1].choices[0].finish_reason, "tool_calls");
   assert.equal(chunks[2].choices[0].delta.content, "Tool result ready.");
   assert.equal(chunks[3].choices[0].finish_reason, "stop");
   assert.equal(upstreamCalls[1].messages.at(-1).role, "tool");
