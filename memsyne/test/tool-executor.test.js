@@ -77,3 +77,57 @@ test("tool executor returns timeout error envelope for long-running handlers", a
   assert.equal(result.handled, true);
   assert.match(result.content, /tool_timeout/);
 });
+
+test("tool executor truncates oversized tool results and emits truncation log", async () => {
+  const warnings = [];
+  const captureLogger = {
+    child() {
+      return this;
+    },
+    debug() {},
+    warn(payload) {
+      warnings.push(payload);
+    },
+  };
+
+  const executor = createToolExecutor({
+    config: {
+      tools: {
+        timeoutMs: 1_000,
+        maxParallelCalls: 1,
+      },
+    },
+    logger: captureLogger,
+  });
+
+  const [result] = await executor.executeToolCalls({
+    toolCalls: [
+      {
+        id: "call_oversize",
+        type: "function",
+        function: {
+          name: "large_tool",
+          arguments: "{}",
+        },
+      },
+    ],
+    executionContext: {
+      handlers: new Map([
+        [
+          "large_tool",
+          {
+            handler: async () => ({
+              text: "x".repeat(20_000),
+            }),
+          },
+        ],
+      ]),
+    },
+  });
+
+  assert.equal(result.handled, true);
+  assert.match(result.content, /tool_result_truncated/);
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].toolName, "large_tool");
+  assert.equal(warnings[0].toolCallId, "call_oversize");
+});

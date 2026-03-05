@@ -218,18 +218,69 @@ test("chat service executes tool calls in non-stream mode", async () => {
   assert.equal(upstreamCalls[1].messages.at(-1).tool_call_id, "call_1");
 });
 
-test("chat service streams tool-enabled requests using completion fallback", async () => {
+test("chat service streams tool-enabled requests with native multi-round execution", async () => {
+  const upstreamCalls = [];
   const service = createChatService({
     openaiClient: {
       chat: {
         completions: {
-          create: async () => ({
-            id: "chatcmpl-tool-stream",
-            object: "chat.completion",
-            created: 1,
-            model: "gpt-5.2",
-            choices: [{ index: 0, message: { role: "assistant", content: "Tool result ready." }, finish_reason: "stop" }],
-          }),
+          create: async (payload) => {
+            upstreamCalls.push(JSON.parse(JSON.stringify(payload)));
+            if (upstreamCalls.length === 1) {
+              return createChunkStream([
+                {
+                  id: "chunk-tool-1",
+                  object: "chat.completion.chunk",
+                  model: "gpt-5.2",
+                  created: 1,
+                  choices: [
+                    {
+                      index: 0,
+                      delta: {
+                        role: "assistant",
+                        content: "Checking...",
+                        tool_calls: [
+                          {
+                            index: 0,
+                            id: "call_1",
+                            type: "function",
+                            function: {
+                              name: "get_memories",
+                              arguments: "{\"query\":\"tea\"}",
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+                {
+                  id: "chunk-tool-2",
+                  object: "chat.completion.chunk",
+                  model: "gpt-5.2",
+                  created: 1,
+                  choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+                },
+              ]);
+            }
+
+            return createChunkStream([
+              {
+                id: "chunk-final-1",
+                object: "chat.completion.chunk",
+                model: "gpt-5.2",
+                created: 1,
+                choices: [{ index: 0, delta: { role: "assistant", content: "Tool result ready." } }],
+              },
+              {
+                id: "chunk-final-2",
+                object: "chat.completion.chunk",
+                model: "gpt-5.2",
+                created: 1,
+                choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+              },
+            ]);
+          },
         },
       },
     },
@@ -251,7 +302,14 @@ test("chat service streams tool-enabled requests using completion fallback", asy
       }),
     },
     toolExecutor: {
-      executeToolCalls: async () => [],
+      executeToolCalls: async () => [
+        {
+          toolCallId: "call_1",
+          toolName: "get_memories",
+          handled: true,
+          content: "{\"ok\":true,\"data\":{\"memories\":[]}}",
+        },
+      ],
     },
     config: {
       tools: {
@@ -278,8 +336,217 @@ test("chat service streams tool-enabled requests using completion fallback", asy
     chunks.push(chunk);
   }
 
-  assert.equal(chunks.length, 2);
+  assert.equal(upstreamCalls.length, 2);
+  assert.equal(chunks.length, 4);
+  assert.equal(chunks[0].choices[0].delta.tool_calls[0].function.name, "get_memories");
   assert.equal(chunks[0].choices[0].delta.role, "assistant");
-  assert.equal(chunks[0].choices[0].delta.content, "Tool result ready.");
-  assert.equal(chunks[1].choices[0].finish_reason, "stop");
+  assert.equal(chunks[2].choices[0].delta.content, "Tool result ready.");
+  assert.equal(chunks[3].choices[0].finish_reason, "stop");
+  assert.equal(upstreamCalls[1].messages.at(-1).role, "tool");
 });
+
+test("chat service stops streaming loop when tool call has no server-side handlers", async () => {
+  const service = createChatService({
+    openaiClient: {
+      chat: {
+        completions: {
+          create: async () =>
+            createChunkStream([
+              {
+                id: "chunk-tool-1",
+                object: "chat.completion.chunk",
+                model: "gpt-5.2",
+                created: 1,
+                choices: [
+                  {
+                    index: 0,
+                    delta: {
+                      role: "assistant",
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_1",
+                          type: "function",
+                          function: {
+                            name: "client_only_tool",
+                            arguments: "{}",
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chunk-tool-2",
+                object: "chat.completion.chunk",
+                model: "gpt-5.2",
+                created: 1,
+                choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+              },
+            ]),
+        },
+      },
+    },
+    memoryService: {
+      recallRelevantMemories: async () => [],
+      formatMemoryContext: () => "Memory context block",
+      extractAndStoreMemories: async () => 0,
+    },
+    promptService: {
+      getActiveSystemPrompt: () => "Base system prompt",
+    },
+    modelService: {
+      assertModelAvailable: async () => {},
+    },
+    toolRegistry: {
+      getExecutionContext: () => ({
+        tools: [{ type: "function", function: { name: "client_only_tool", parameters: { type: "object" } } }],
+        handlers: new Map(),
+      }),
+    },
+    toolExecutor: {
+      executeToolCalls: async () => [
+        {
+          toolCallId: "call_1",
+          toolName: "client_only_tool",
+          handled: false,
+          content: null,
+        },
+      ],
+    },
+    config: {
+      tools: {
+        maxRounds: 6,
+      },
+    },
+    logger,
+  });
+
+  const chunks = [];
+  for await (const chunk of service.streamChatCompletion({
+    requestBody: {
+      model: "gpt-5.2",
+      messages: [{ role: "user", content: "use tools" }],
+      stream: true,
+      upstreamOptions: {},
+      tools: [{ type: "function", function: { name: "client_only_tool", parameters: { type: "object" } } }],
+      toolChoice: "auto",
+      lastUserMessage: "use tools",
+    },
+    signal: AbortSignal.timeout(1000),
+    logger,
+  })) {
+    chunks.push(chunk);
+  }
+
+  assert.equal(chunks.length, 2);
+  assert.equal(chunks[1].choices[0].finish_reason, "tool_calls");
+});
+
+test("chat service throws when streaming tool loop exceeds max rounds", async () => {
+  const service = createChatService({
+    openaiClient: {
+      chat: {
+        completions: {
+          create: async () =>
+            createChunkStream([
+              {
+                id: "chunk-tool-1",
+                object: "chat.completion.chunk",
+                model: "gpt-5.2",
+                created: 1,
+                choices: [
+                  {
+                    index: 0,
+                    delta: {
+                      role: "assistant",
+                      tool_calls: [
+                        {
+                          index: 0,
+                          id: "call_1",
+                          type: "function",
+                          function: {
+                            name: "get_memories",
+                            arguments: "{}",
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+              {
+                id: "chunk-tool-2",
+                object: "chat.completion.chunk",
+                model: "gpt-5.2",
+                created: 1,
+                choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+              },
+            ]),
+        },
+      },
+    },
+    memoryService: {
+      recallRelevantMemories: async () => [],
+      formatMemoryContext: () => "Memory context block",
+      extractAndStoreMemories: async () => 0,
+    },
+    promptService: {
+      getActiveSystemPrompt: () => "Base system prompt",
+    },
+    modelService: {
+      assertModelAvailable: async () => {},
+    },
+    toolRegistry: {
+      getExecutionContext: () => ({
+        tools: [{ type: "function", function: { name: "get_memories", parameters: { type: "object" } } }],
+        handlers: new Map([["get_memories", { source: "builtin", handler: async () => ({}) }]]),
+      }),
+    },
+    toolExecutor: {
+      executeToolCalls: async () => [
+        {
+          toolCallId: "call_1",
+          toolName: "get_memories",
+          handled: true,
+          content: "{\"ok\":true,\"data\":{}}",
+        },
+      ],
+    },
+    config: {
+      tools: {
+        maxRounds: 1,
+      },
+    },
+    logger,
+  });
+
+  await assert.rejects(async () => {
+    for await (const _chunk of service.streamChatCompletion({
+      requestBody: {
+        model: "gpt-5.2",
+        messages: [{ role: "user", content: "use tools" }],
+        stream: true,
+        upstreamOptions: {},
+        tools: [{ type: "function", function: { name: "get_memories", parameters: { type: "object" } } }],
+        toolChoice: "auto",
+        lastUserMessage: "use tools",
+      },
+      signal: AbortSignal.timeout(1000),
+      logger,
+    })) {
+      // consume chunks
+    }
+  }, /maximum number of rounds/);
+});
+
+function createChunkStream(chunks) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const chunk of chunks) {
+        yield chunk;
+      }
+    },
+  };
+}

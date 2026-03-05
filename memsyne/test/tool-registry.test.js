@@ -3,8 +3,24 @@ import test from "node:test";
 import pino from "pino";
 
 import { createToolRegistry } from "../src/tools/tool-registry.js";
+import { createDocumentCache } from "../src/tools/document-cache.js";
 
 const logger = pino({ level: "silent" });
+
+function createDocumentCacheForTest() {
+  return createDocumentCache({
+    config: {
+      tools: {
+        documentCache: {
+          ttlMs: 3_600_000,
+          maxDocuments: 500,
+          maxDocumentBytes: 4_194_304,
+        },
+      },
+    },
+    logger,
+  });
+}
 
 test("tool registry keeps built-in tool when client defines a conflicting name", () => {
   const registry = createToolRegistry({
@@ -26,6 +42,7 @@ test("tool registry keeps built-in tool when client defines a conflicting name",
       getToolDefinitions: () => [],
       invoke: async () => ({}),
     },
+    documentCache: createDocumentCacheForTest(),
   });
 
   const context = registry.getExecutionContext({
@@ -73,6 +90,7 @@ test("tool registry includes namespaced MCP tools", () => {
       ],
       invoke: async () => ({ ok: true }),
     },
+    documentCache: createDocumentCacheForTest(),
   });
 
   const context = registry.getExecutionContext({
@@ -83,7 +101,7 @@ test("tool registry includes namespaced MCP tools", () => {
   assert.ok(context.handlers.has("mcp.web.search"));
 });
 
-test("tool registry registers web_search and get_url_content when web tools are enabled", () => {
+test("tool registry registers web/document tools when web tools are enabled", () => {
   const registry = createToolRegistry({
     config: {
       tools: {
@@ -110,9 +128,12 @@ test("tool registry registers web_search and get_url_content when web tools are 
       getToolDefinitions: () => [],
       invoke: async () => ({}),
     },
+    documentCache: createDocumentCacheForTest(),
   });
 
   const context = registry.getExecutionContext({ clientTools: [] });
   assert.ok(context.tools.some((tool) => tool.function.name === "web_search"));
   assert.ok(context.tools.some((tool) => tool.function.name === "get_url_content"));
+  assert.ok(context.tools.some((tool) => tool.function.name === "read_document_chunk"));
+  assert.ok(context.tools.some((tool) => tool.function.name === "find_in_document"));
 });

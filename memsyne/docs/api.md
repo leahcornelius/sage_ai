@@ -76,8 +76,10 @@ The following pass through to upstream OpenAI chat completions:
 - `tool_choice`: one of `none`, `auto`, `required`, or `{ "type": "function", "function": { "name": "..." } }`
 
 Built-in web tools:
-- `web_search`: Brave-backed query search (`llm_context` default).
-- `get_url_content`: Brave-first URL retrieval with direct-fetch fallback.
+- `web_search`: Brave-backed query search (`llm_context` default), returns lightweight metadata/snippets plus `result_id` handles.
+- `get_url_content`: Brave-first URL retrieval with direct-fetch fallback, caches full page text server-side and returns `document_id` + preview metadata.
+- `read_document_chunk`: reads document chunks by `document_id`, `offset`, and token profile.
+- `find_in_document`: searches cached documents and returns relevant passage offsets.
 
 Token profile argument for web tools:
 - `max_tokens` must be one of `2048` (simple factual), `8192` (standard), `16384` (complex research).
@@ -103,11 +105,11 @@ When `stream` is enabled, Sage returns Server-Sent Events (SSE):
 - Each event line is `data: <json>`
 - Stream ends with `data: [DONE]`
 
-### Tool + stream fallback behavior
-If you send `tools` with `stream: true`, Sage currently executes through a non-stream completion path first, then emits a synthetic chunk stream:
-- First chunk contains full assistant text in one delta.
-- Final chunk contains `finish_reason: "stop"` (and usage when available).
-- This is not token-by-token incremental streaming in that mode.
+### Tool + stream behavior
+When tools are active with `stream: true`, Sage executes native multi-round streaming tool calls:
+- Upstream chunks are forwarded as SSE in real time, including `tool_calls` deltas.
+- Sage executes server-handled tool calls between rounds and continues streaming subsequent assistant output.
+- Stream still terminates with `data: [DONE]`.
 
 ## Error Envelope
 Sage normalizes errors into OpenAI-style shape:
@@ -236,9 +238,38 @@ curl -sS http://localhost:8787/v1/chat/completions \
             "type": "object",
             "properties": {
               "url": {"type": "string"},
+              "result_id": {"type": "string"},
+              "max_tokens": {"type": "integer", "enum": [2048, 8192, 16384]}
+            }
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "read_document_chunk",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "document_id": {"type": "string"},
+              "offset": {"type": "integer"},
               "max_tokens": {"type": "integer", "enum": [2048, 8192, 16384]}
             },
-            "required": ["url"]
+            "required": ["document_id", "offset"]
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "find_in_document",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "document_id": {"type": "string"},
+              "query": {"type": "string"}
+            },
+            "required": ["document_id", "query"]
           }
         }
       }

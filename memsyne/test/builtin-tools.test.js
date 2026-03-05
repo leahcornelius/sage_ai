@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import pino from "pino";
 
-import { createGetMemoriesHandler } from "../src/tools/builtin/get-memories.js";
 import { createAddMemoryHandler } from "../src/tools/builtin/add-memory.js";
-import { createWebSearchHandler } from "../src/tools/builtin/web-search.js";
+import { createFindInDocumentHandler } from "../src/tools/builtin/find-in-document.js";
+import { createGetMemoriesHandler } from "../src/tools/builtin/get-memories.js";
 import { createGetUrlContentHandler } from "../src/tools/builtin/get-url-content.js";
+import { createReadDocumentChunkHandler } from "../src/tools/builtin/read-document-chunk.js";
+import { createWebSearchHandler } from "../src/tools/builtin/web-search.js";
+import { createDocumentCache } from "../src/tools/document-cache.js";
 
 const logger = pino({ level: "silent" });
 
@@ -23,8 +26,20 @@ function createWebConfig(overrides = {}) {
         searchLang: "en",
         ...overrides,
       },
+      documentCache: {
+        ttlMs: 3_600_000,
+        maxDocuments: 500,
+        maxDocumentBytes: 4_194_304,
+      },
     },
   };
+}
+
+function createCache() {
+  return createDocumentCache({
+    config: createWebConfig(),
+    logger,
+  });
 }
 
 test("get_memories handler returns memory results", async () => {
@@ -67,7 +82,7 @@ test("add_memory handler enforces write flag", async () => {
   );
 });
 
-test("web_search handler uses brave llm_context mode and normalizes results", async () => {
+test("web_search returns lightweight metadata and stable result_id", async () => {
   const originalFetch = globalThis.fetch;
   let requestedUrl;
   globalThis.fetch = async (url) => {
@@ -75,7 +90,7 @@ test("web_search handler uses brave llm_context mode and normalizes results", as
     return {
       ok: true,
       json: async () => ({
-        summary: "High-level context summary",
+        summary: "Long contextual summary that should not be returned directly.",
         web: {
           results: [{ title: "Result", url: "https://example.com", description: "Snippet text" }],
         },
@@ -84,8 +99,10 @@ test("web_search handler uses brave llm_context mode and normalizes results", as
   };
 
   try {
+    const documentCache = createCache();
     const handler = createWebSearchHandler({
       config: createWebConfig(),
+      documentCache,
     });
 
     const result = await handler({
@@ -101,45 +118,9 @@ test("web_search handler uses brave llm_context mode and normalizes results", as
     assert.equal(parsed.searchParams.get("maximum_number_of_tokens_per_url"), "16384");
     assert.equal(result.result_count, 1);
     assert.equal(result.results[0].url, "https://example.com");
-    assert.equal(result.context, "High-level context summary");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("web_search handler supports web_search mode and safesearch settings", async () => {
-  const originalFetch = globalThis.fetch;
-  let requestedUrl;
-  globalThis.fetch = async (url) => {
-    requestedUrl = String(url);
-    return {
-      ok: true,
-      json: async () => ({
-        web: { results: [] },
-      }),
-    };
-  };
-
-  try {
-    const handler = createWebSearchHandler({
-      config: createWebConfig({
-        mode: "web_search",
-        safeSearch: "moderate",
-      }),
-    });
-
-    await handler({
-      args: {
-        query: "news",
-        max_results: 7,
-      },
-      logger,
-    });
-
-    const parsed = new URL(requestedUrl);
-    assert.equal(parsed.searchParams.get("safesearch"), "moderate");
-    assert.equal(parsed.searchParams.get("count"), "7");
-    assert.equal(parsed.searchParams.get("summary"), null);
+    assert.ok(result.results[0].result_id.startsWith("sr_"));
+    assert.equal(result.context, undefined);
+    assert.equal(documentCache.resolveResultUrl(result.results[0].result_id), "https://example.com");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -148,6 +129,7 @@ test("web_search handler supports web_search mode and safesearch settings", asyn
 test("web_search rejects invalid max_tokens values", async () => {
   const handler = createWebSearchHandler({
     config: createWebConfig(),
+    documentCache: createCache(),
   });
 
   await assert.rejects(
@@ -163,7 +145,7 @@ test("web_search rejects invalid max_tokens values", async () => {
   );
 });
 
-test("get_url_content uses Brave when context is available", async () => {
+test("get_url_content caches document and returns document handle", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => ({
     ok: true,
@@ -173,8 +155,11 @@ test("get_url_content uses Brave when context is available", async () => {
           {
             title: "Example Article",
             url: "https://example.com/post",
-            description: "Description from Brave",
-            extra_snippets: ["More context from Brave"],
+            description: "Description from Brave with substantial body text. ".repeat(12),
+            extra_snippets: [
+              "More context from Brave that is long enough to trigger Brave-first usage. ".repeat(8),
+              "Additional details for the same URL. ".repeat(8),
+            ],
           },
         ],
       },
@@ -182,9 +167,12 @@ test("get_url_content uses Brave when context is available", async () => {
   });
 
   try {
+    const documentCache = createCache();
     const handler = createGetUrlContentHandler({
       config: createWebConfig(),
+      documentCache,
     });
+    const readChunk = createReadDocumentChunkHandler({ documentCache });
 
     const result = await handler({
       args: {
@@ -194,18 +182,40 @@ test("get_url_content uses Brave when context is available", async () => {
     });
 
     assert.equal(result.source, "brave");
-    assert.match(result.content, /Description from Brave/);
+    assert.ok(result.document_id.startsWith("doc_"));
+    assert.ok(result.preview.length > 0);
+
+    const chunk = await readChunk({
+      args: {
+        document_id: result.document_id,
+        offset: 0,
+        max_tokens: 2048,
+      },
+      logger,
+    });
+    assert.equal(chunk.document_id, result.document_id);
+    assert.ok(chunk.text.length > 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("get_url_content falls back to direct fetch when Brave has no content", async () => {
+test("get_url_content supports result_id and direct fallback", async () => {
   const originalFetch = globalThis.fetch;
   let callIndex = 0;
   globalThis.fetch = async () => {
     callIndex += 1;
     if (callIndex === 1) {
+      return {
+        ok: true,
+        json: async () => ({
+          web: {
+            results: [{ title: "Example", url: "https://example.com/article", description: "Snippet" }],
+          },
+        }),
+      };
+    }
+    if (callIndex === 2) {
       return {
         ok: true,
         json: async () => ({ web: { results: [] } }),
@@ -219,25 +229,48 @@ test("get_url_content falls back to direct fetch when Brave has no content", asy
         get: (name) => (name.toLowerCase() === "content-type" ? "text/html; charset=utf-8" : null),
       },
       text: async () =>
-        "<html><head><title>Test</title></head><body><h1>Hello</h1><p>World content</p></body></html>",
+        "<html><head><title>Test Title</title></head><body><h1>Hello</h1><p>World content</p></body></html>",
     };
   };
 
   try {
-    const handler = createGetUrlContentHandler({
+    const documentCache = createCache();
+    const webSearch = createWebSearchHandler({
       config: createWebConfig(),
+      documentCache,
     });
+    const urlHandler = createGetUrlContentHandler({
+      config: createWebConfig(),
+      documentCache,
+    });
+    const finder = createFindInDocumentHandler({ documentCache });
 
-    const result = await handler({
+    const searchResult = await webSearch({
+      args: { query: "article" },
+      logger,
+    });
+    const resultId = searchResult.results[0].result_id;
+
+    const contentResult = await urlHandler({
       args: {
-        url: "https://example.com/article",
+        result_id: resultId,
         max_tokens: 2048,
       },
       logger,
     });
 
-    assert.equal(result.source, "direct_fallback");
-    assert.match(result.content, /Hello World content/);
+    assert.equal(contentResult.source, "direct_fallback");
+    assert.ok(contentResult.document_id.startsWith("doc_"));
+
+    const findResult = await finder({
+      args: {
+        document_id: contentResult.document_id,
+        query: "world",
+      },
+      logger,
+    });
+    assert.ok(findResult.match_count >= 1);
+    assert.ok(findResult.matches[0].excerpt.toLowerCase().includes("world"));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -246,9 +279,11 @@ test("get_url_content falls back to direct fetch when Brave has no content", asy
 test("web tooling handlers reject when disabled", async () => {
   const webHandler = createWebSearchHandler({
     config: createWebConfig({ enabled: false }),
+    documentCache: createCache(),
   });
   const urlHandler = createGetUrlContentHandler({
     config: createWebConfig({ enabled: false }),
+    documentCache: createCache(),
   });
 
   await assert.rejects(

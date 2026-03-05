@@ -51,6 +51,9 @@ test("createConfig parses optional settings and defaults", () => {
   assert.equal(config.tools.web.safeSearch, "off");
   assert.equal(config.tools.web.country, "GB");
   assert.equal(config.tools.web.searchLang, "en");
+  assert.equal(config.tools.documentCache.ttlMs, 3600000);
+  assert.equal(config.tools.documentCache.maxDocuments, 500);
+  assert.equal(config.tools.documentCache.maxDocumentBytes, 4194304);
 });
 
 test("createConfig supports independent console and file log levels", () => {
@@ -114,6 +117,9 @@ test("createConfig parses tool and MCP settings", () => {
     SAGE_BRAVE_SAFESEARCH: "moderate",
     SAGE_BRAVE_COUNTRY: "US",
     SAGE_BRAVE_SEARCH_LANG: "en",
+    SAGE_DOC_CACHE_TTL_MS: "7200000",
+    SAGE_DOC_CACHE_MAX_DOCS: "1000",
+    SAGE_DOC_CACHE_MAX_DOC_BYTES: "6000000",
   });
 
   assert.equal(config.tools.enabled, false);
@@ -130,6 +136,9 @@ test("createConfig parses tool and MCP settings", () => {
   assert.equal(config.tools.web.safeSearch, "moderate");
   assert.equal(config.tools.web.country, "US");
   assert.equal(config.tools.web.searchLang, "en");
+  assert.equal(config.tools.documentCache.ttlMs, 7200000);
+  assert.equal(config.tools.documentCache.maxDocuments, 1000);
+  assert.equal(config.tools.documentCache.maxDocumentBytes, 6000000);
 });
 
 test("createConfig requires BRAVE_API_KEY when WEB_SEARCH_ENABLED=true", () => {
@@ -176,5 +185,18 @@ test("createConfig rejects invalid brave enum values", () => {
         SAGE_BRAVE_SAFESEARCH: "high",
       }),
     /SAGE_BRAVE_SAFESEARCH/
+  );
+});
+
+test("createConfig rejects invalid document cache values", () => {
+  assert.throws(
+    () =>
+      createConfig({
+        OPENAI_API_KEY: "openai-key",
+        SAGE_API_KEY: "sage-key",
+        BRAVE_API_KEY: "brave-key",
+        SAGE_DOC_CACHE_TTL_MS: "0",
+      }),
+    /SAGE_DOC_CACHE_TTL_MS/
   );
 });

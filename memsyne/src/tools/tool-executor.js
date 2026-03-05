@@ -1,5 +1,7 @@
 import { excerptText, textLength } from "../logging/safe-debug.js";
 
+const TOOL_RESULT_MAX_BYTES = 8_000;
+
 function createToolExecutor({ config, logger }) {
   const executorLogger = logger.child({ component: "tool-executor" });
 
@@ -61,6 +63,10 @@ function createToolExecutor({ config, logger }) {
             code: "invalid_tool_arguments",
             message: error.message,
           },
+        }, {
+          logger: operationLogger,
+          toolName,
+          toolCallId,
         }),
       };
     }
@@ -88,6 +94,10 @@ function createToolExecutor({ config, logger }) {
         content: stringifyToolResult({
           ok: true,
           data,
+        }, {
+          logger: operationLogger,
+          toolName,
+          toolCallId,
         }),
       };
     } catch (error) {
@@ -109,6 +119,10 @@ function createToolExecutor({ config, logger }) {
             code: error?.code || "tool_execution_failed",
             message: error?.message || "Tool execution failed.",
           },
+        }, {
+          logger: operationLogger,
+          toolName,
+          toolCallId,
         }),
       };
     }
@@ -161,17 +175,28 @@ async function runWithTimeout(callback, timeoutMs) {
   }
 }
 
-function stringifyToolResult(result) {
+function stringifyToolResult(result, { logger, toolName, toolCallId } = {}) {
   const raw = JSON.stringify(result);
-  if (raw.length <= 8_000) {
+  if (raw.length <= TOOL_RESULT_MAX_BYTES) {
     return raw;
   }
+
+  logger?.warn(
+    {
+      toolName,
+      toolCallId,
+      resultBytes: Buffer.byteLength(raw, "utf8"),
+      resultCharLength: raw.length,
+      maxBytes: TOOL_RESULT_MAX_BYTES,
+    },
+    "Tool result exceeded executor cap and was truncated"
+  );
 
   return JSON.stringify({
     ok: false,
     error: {
       code: "tool_result_truncated",
-      message: `Tool result exceeded 8000 bytes and was truncated. Preview: ${excerptText(raw, 500)}`,
+      message: `Tool result exceeded ${TOOL_RESULT_MAX_BYTES} bytes and was truncated. Preview: ${excerptText(raw, 500)}`,
     },
   });
 }

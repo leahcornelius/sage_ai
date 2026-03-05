@@ -1,12 +1,20 @@
 import { createAddMemoryHandler, addMemoryTool } from "./builtin/add-memory.js";
 import { createGetMemoriesHandler, getMemoriesTool } from "./builtin/get-memories.js";
 import {
+  createFindInDocumentHandler,
+  findInDocumentTool,
+} from "./builtin/find-in-document.js";
+import {
   createGetUrlContentHandler,
   getUrlContentTool,
 } from "./builtin/get-url-content.js";
+import {
+  createReadDocumentChunkHandler,
+  readDocumentChunkTool,
+} from "./builtin/read-document-chunk.js";
 import { createWebSearchHandler, webSearchTool } from "./builtin/web-search.js";
 
-function createToolRegistry({ config, logger, memoryService, mcpClientManager }) {
+function createToolRegistry({ config, logger, memoryService, mcpClientManager, documentCache }) {
   const registryLogger = logger.child({ component: "tool-registry" });
   const builtInTools = new Map();
 
@@ -20,13 +28,25 @@ function createToolRegistry({ config, logger, memoryService, mcpClientManager })
   });
 
   if (config.tools.web?.enabled) {
+    if (!documentCache) {
+      throw new Error("Document cache is required when built-in web tools are enabled.");
+    }
+
     builtInTools.set(webSearchTool.function.name, {
       definition: webSearchTool,
-      handler: createWebSearchHandler({ config }),
+      handler: createWebSearchHandler({ config, documentCache }),
     });
     builtInTools.set(getUrlContentTool.function.name, {
       definition: getUrlContentTool,
-      handler: createGetUrlContentHandler({ config }),
+      handler: createGetUrlContentHandler({ config, documentCache }),
+    });
+    builtInTools.set(readDocumentChunkTool.function.name, {
+      definition: readDocumentChunkTool,
+      handler: createReadDocumentChunkHandler({ documentCache }),
+    });
+    builtInTools.set(findInDocumentTool.function.name, {
+      definition: findInDocumentTool,
+      handler: createFindInDocumentHandler({ documentCache }),
     });
   }
 

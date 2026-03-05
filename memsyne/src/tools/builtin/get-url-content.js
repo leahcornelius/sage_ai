@@ -1,6 +1,7 @@
 import { AppError } from "../../errors/app-error.js";
-import { excerptText } from "../../logging/safe-debug.js";
+import { excerptText, textLength } from "../../logging/safe-debug.js";
 import {
+  buildPreviewForTokens,
   callBraveWebApi,
   fetchUrlContentDirect,
   normalizeBraveSearchResults,
@@ -14,13 +15,17 @@ const getUrlContentTool = {
   function: {
     name: "get_url_content",
     description:
-      "Retrieve the content of a specific URL using Brave-first retrieval with direct fallback.",
+      "Fetch a URL, cache the full parsed document server-side, and return a document handle for chunked reads.",
     parameters: {
       type: "object",
       properties: {
         url: {
           type: "string",
           description: "The URL to retrieve content from.",
+        },
+        result_id: {
+          type: "string",
+          description: "A web_search result_id previously returned by web_search.",
         },
         mode: {
           type: "string",
@@ -29,49 +34,62 @@ const getUrlContentTool = {
         },
         max_tokens: {
           type: "integer",
-          description: "Token budget for returned content.",
+          description: "Token profile for preview sizing.",
           enum: [2048, 8192, 16384],
         },
       },
-      required: ["url", "max_tokens"],
       additionalProperties: false,
     },
   },
 };
 
-function createGetUrlContentHandler({ config }) {
+function createGetUrlContentHandler({ config, documentCache }) {
   return async function handleGetUrlContent({ args, logger }) {
     if (!config.tools.web.enabled) {
       throw new AppError({
         statusCode: 400,
         code: "web_search_disabled",
         type: "invalid_request_error",
-        message:
-          "The get_url_content tool is disabled by server configuration.",
+        message: "The get_url_content tool is disabled by server configuration.",
       });
     }
 
-    const url = validateUrl(args.url);
+    const url = resolveUrlFromArgs({ args, documentCache });
     const mode = resolveBraveMode(args.mode, config.tools.web.mode);
     const maxTokens = resolveMaxTokens(args.max_tokens);
+
     logger.debug(
       {
         url: excerptText(url, 200),
         mode,
         maxTokens,
       },
-      "Fetching URL content"
+      "Fetching URL content for document cache"
     );
-    let braveResult = null;
+
+    let source = "brave";
+    let content = "";
+    let title = "";
+    let metadata = {};
+
     try {
-      braveResult = await fetchUrlContentFromBrave({
+      const braveResult = await fetchUrlContentFromBrave({
         url,
         mode,
         maxTokens,
         config,
         logger,
       });
+
+      if (braveResult) {
+        content = braveResult.content;
+        title = braveResult.title;
+        metadata = braveResult.metadata;
+      } else {
+        source = "direct_fallback";
+      }
     } catch (error) {
+      source = "direct_fallback";
       logger.warn(
         {
           err: error,
@@ -81,42 +99,89 @@ function createGetUrlContentHandler({ config }) {
       );
     }
 
-    if (braveResult) {
-      logger.debug(
-        {
-          url: excerptText(url, 200),
-          mode,
-          source: "brave",
-        },
-        "get_url_content completed via Brave API"
-      );
-      return braveResult;
+    if (source === "direct_fallback") {
+      const fallback = await fetchUrlContentDirect({
+        url,
+        timeoutMs: config.tools.web.timeoutMs,
+      });
+      content = fallback.content;
+      title = fallback.title;
+      metadata = fallback.metadata;
     }
 
-    const fallback = await fetchUrlContentDirect({
+    if (!content || !content.trim()) {
+      throw new AppError({
+        statusCode: 502,
+        code: "upstream_error",
+        type: "server_error",
+        message: "No readable content was retrieved for the provided URL.",
+      });
+    }
+
+    const cached = documentCache.putDocument({
       url,
-      maxTokens,
-      timeoutMs: config.tools.web.timeoutMs,
+      title,
+      text: content,
+      metadata,
+      source,
+      logger,
     });
+    const preview = buildPreviewForTokens(content, maxTokens);
 
     logger.debug(
       {
         url: excerptText(url, 200),
-        mode,
-        source: "direct_fallback",
+        source,
+        documentId: cached.documentId,
+        contentLength: textLength(content),
+        storedBytes: cached.storedBytes,
+        truncated: cached.truncated,
       },
-      "get_url_content completed via direct fallback"
+      "Cached URL content and returned document handle"
     );
 
     return {
+      document_id: cached.documentId,
       url,
-      mode,
-      max_tokens: maxTokens,
-      source: "direct_fallback",
-      content: fallback.content,
-      metadata: fallback.metadata,
+      source,
+      title: title || null,
+      text_length: cached.textLength,
+      preview,
+      metadata: {
+        ...metadata,
+        truncated_in_cache: cached.truncated,
+      },
     };
   };
+}
+
+function resolveUrlFromArgs({ args, documentCache }) {
+  const urlArg = typeof args.url === "string" ? args.url.trim() : "";
+  const resultId = typeof args.result_id === "string" ? args.result_id.trim() : "";
+
+  if (urlArg) {
+    return validateUrl(urlArg);
+  }
+
+  if (resultId) {
+    const resolved = documentCache.resolveResultUrl(resultId);
+    if (!resolved) {
+      throw new AppError({
+        statusCode: 400,
+        code: "invalid_tool_arguments",
+        type: "invalid_request_error",
+        message: "result_id is not found or has expired.",
+      });
+    }
+    return resolved;
+  }
+
+  throw new AppError({
+    statusCode: 400,
+    code: "invalid_tool_arguments",
+    type: "invalid_request_error",
+    message: "Either url or result_id is required.",
+  });
 }
 
 async function fetchUrlContentFromBrave({
@@ -135,30 +200,25 @@ async function fetchUrlContentFromBrave({
     logger,
   });
 
-  const normalized = normalizeBraveSearchResults(
-    payload,
-    Math.min(config.tools.web.maxResults, 5)
-  );
+  const normalized = normalizeBraveSearchResults(payload, Math.min(config.tools.web.maxResults, 5));
   if (!normalized.results.length && !normalized.contextText) {
     return null;
   }
 
   const bestMatch = selectBestUrlMatch(normalized.results, url);
-  const content = bestMatch?.context || normalized.contextText;
-  if (!content) {
+  const contentCandidate = bestMatch?.context || normalized.contextText || "";
+  if (contentCandidate.length < 300) {
     return null;
   }
 
   return {
-    url,
-    mode,
-    max_tokens: maxTokens,
-    source: "brave",
-    content,
+    content: contentCandidate,
+    title: bestMatch?.title || "",
     metadata: {
       matched_url: bestMatch?.url || null,
       matched_title: bestMatch?.title || null,
       result_count: normalized.results.length,
+      fetched_via: "brave",
     },
   };
 }

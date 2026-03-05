@@ -62,10 +62,13 @@ src/
 | `src/services/prompt-service.js` | `createPromptService` | System prompt file loading and active prompt selection | `src/index.js`, chat service |
 | `src/tools/tool-registry.js` | `createToolRegistry` | Merge built-in, MCP, and client tools into effective tool context | `src/index.js`, chat service |
 | `src/tools/tool-executor.js` | `createToolExecutor` | Concurrent tool execution with timeout/result envelope | `src/index.js`, chat service |
+| `src/tools/document-cache.js` | `createDocumentCache` | In-memory TTL document/result handle cache for web tooling | `src/index.js`, built-in web tools |
 | `src/tools/builtin/get-memories.js` | `getMemoriesTool`, `createGetMemoriesHandler` | Built-in memory read tool contract/handler | Tool registry |
 | `src/tools/builtin/add-memory.js` | `addMemoryTool`, `createAddMemoryHandler` | Built-in memory write tool contract/handler | Tool registry |
-| `src/tools/builtin/web-search.js` | `webSearchTool`, `createWebSearchHandler` | Brave-backed query search tool contract/handler | Tool registry |
-| `src/tools/builtin/get-url-content.js` | `getUrlContentTool`, `createGetUrlContentHandler` | Brave-first URL content tool with direct fetch fallback | Tool registry |
+| `src/tools/builtin/web-search.js` | `webSearchTool`, `createWebSearchHandler` | Brave-backed metadata search tool with stable `result_id` handles | Tool registry |
+| `src/tools/builtin/get-url-content.js` | `getUrlContentTool`, `createGetUrlContentHandler` | URL retrieval and document-cache handle creation (`document_id`) | Tool registry |
+| `src/tools/builtin/read-document-chunk.js` | `readDocumentChunkTool`, `createReadDocumentChunkHandler` | Progressive chunk reads from cached documents | Tool registry |
+| `src/tools/builtin/find-in-document.js` | `findInDocumentTool`, `createFindInDocumentHandler` | Passage search over cached documents | Tool registry |
 | `src/tools/builtin/brave-web.js` | Brave helper exports | Shared Brave API request/normalization + direct URL fetch helpers | Built-in web tools |
 | `src/tools/mcp/mcp-client-manager.js` | `createMcpClientManager` | MCP server initialization, listing, invocation | `src/index.js`, tool registry |
 | `src/tools/mcp/mcp-tool-adapter.js` | `mapMcpToolsToOpenAiTools`, `parseNamespacedToolName`, `toNamespacedToolName` | MCP tool name adaptation | MCP manager |
@@ -114,7 +117,7 @@ Effective tool list per request is built as:
 
 Handler map contains only server-resolvable tool handlers (built-in + MCP). Client-only tools may still be advertised upstream but are not executed server-side.
 
-## Deep Dive 4: Tool Execution Semantics
+## Deep Dive 4: Tool Execution + Streaming
 
 ### `createToolExecutor` (`src/tools/tool-executor.js`)
 - Concurrency: bounded by `SAGE_TOOL_MAX_PARALLEL_CALLS` and tool call count.
@@ -125,7 +128,26 @@ Handler map contains only server-resolvable tool handlers (built-in + MCP). Clie
   - `handled: true` with JSON string payload containing `{ ok, data|error }`.
 - Oversized result protection: payloads over 8000 bytes are replaced with truncation error envelope.
 
-## Deep Dive 5: Memory Extraction Pipeline
+### `streamChatCompletion` (`src/services/chat-service.js`)
+- Native streaming tool loop is used when tools are enabled and `tool_choice !== "none"`.
+- Upstream stream chunks are forwarded directly, including `tool_calls` deltas.
+- Streamed tool call deltas are reconstructed into full tool calls.
+- Server-handled tool results are appended as `tool` role messages between rounds.
+- Loop stops on assistant content without tool calls, no server handlers, or max-round overflow.
+
+## Deep Dive 5: Document-Handle Web Workflow
+
+### `createDocumentCache` (`src/tools/document-cache.js`)
+- Process-local in-memory cache with TTL for:
+  - `result_id -> url` mappings from `web_search`
+  - `document_id -> full normalized text` entries from `get_url_content`
+- Enforces `SAGE_DOC_CACHE_MAX_DOCS` and `SAGE_DOC_CACHE_MAX_DOC_BYTES`.
+- Supports:
+  - offset-based reads (`read_document_chunk`)
+  - passage search (`find_in_document`)
+  - bounded chunk sizes to keep tool responses under executor cap.
+
+## Deep Dive 6: Memory Extraction Pipeline
 
 ### `extractAndStoreMemories` (`src/services/memory-service.js`)
 1. Chooses extraction model (`SAGE_MEMORY_EXTRACTION_MODEL` or request model).
@@ -163,7 +185,7 @@ Derived from `src/config/env.js` and `.env.example`.
 | `SAGE_TOOL_MAX_PARALLEL_CALLS` | `4` | Max concurrent server-side tool calls |
 | `SAGE_MEMORY_TOOL_WRITE_ENABLED` | `true` | Enables/disables `add_memory` tool writes |
 | `SAGE_MCP_SERVERS_JSON` | `[]` | MCP server definitions JSON array |
-| `WEB_SEARCH_ENABLED` | `true` | Enables/disables built-in Brave web tools (`web_search`, `get_url_content`) |
+| `WEB_SEARCH_ENABLED` | `true` | Enables/disables built-in Brave web tools (`web_search`, `get_url_content`, `read_document_chunk`, `find_in_document`) |
 | `BRAVE_API_KEY` | required when enabled | Brave API auth token (`X-Subscription-Token`) |
 | `SAGE_BRAVE_MODE` | `llm_context` | Default Brave mode (`llm_context` or `web_search`) |
 | `SAGE_BRAVE_MAX_RESULTS` | `5` | Default max Brave results |
@@ -171,6 +193,9 @@ Derived from `src/config/env.js` and `.env.example`.
 | `SAGE_BRAVE_SAFESEARCH` | `off` | Brave safesearch level (`off`, `moderate`, `strict`) |
 | `SAGE_BRAVE_COUNTRY` | `GB` | Brave country/region hint |
 | `SAGE_BRAVE_SEARCH_LANG` | `en` | Brave search language hint |
+| `SAGE_DOC_CACHE_TTL_MS` | `3600000` | TTL for cached documents and search result handles |
+| `SAGE_DOC_CACHE_MAX_DOCS` | `500` | Maximum in-memory cached documents |
+| `SAGE_DOC_CACHE_MAX_DOC_BYTES` | `4194304` | Maximum normalized bytes stored per cached document |
 | `SAGE_LOG_LEVEL` | `info` | Legacy shared log level fallback |
 | `SAGE_LOG_CONSOLE_LEVEL` | derived | Console log level |
 | `SAGE_LOG_FILE_LEVEL` | derived | File log level |
@@ -190,7 +215,8 @@ Derived from `src/config/env.js` and `.env.example`.
 | Test file | Main behavior covered |
 |---|---|
 | `test/app.test.js` | Route auth behavior, endpoint responses, SSE wiring, error mapping |
-| `test/chat-service.test.js` | Upstream payload ordering, stream behavior, tool loop/fallback |
+| `test/chat-service.test.js` | Upstream payload ordering, native stream behavior, tool loop execution |
+| `test/document-cache.test.js` | Document cache TTL/eviction/truncation/result-id mapping |
 | `test/messages.test.js` | Message normalization rules and unsupported content rejection |
 | `test/model-service.test.js` | Allowlist filtering and stale cache fallback |
 | `test/memory-service.test.js` | Recall/extraction failure tolerance |

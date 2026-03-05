@@ -13,7 +13,7 @@ const webSearchTool = {
   type: "function",
   function: {
     name: "web_search",
-    description: "Search the internet with Brave and return LLM-friendly context with metadata.",
+    description: "Search the internet and return lightweight web result metadata with stable result IDs.",
     parameters: {
       type: "object",
       properties: {
@@ -34,7 +34,7 @@ const webSearchTool = {
         },
         max_tokens: {
           type: "integer",
-          description: "Per-result token budget for context extraction.",
+          description: "Token profile for Brave context extraction.",
           enum: [2048, 8192, 16384],
         },
       },
@@ -44,7 +44,7 @@ const webSearchTool = {
   },
 };
 
-function createWebSearchHandler({ config }) {
+function createWebSearchHandler({ config, documentCache }) {
   return async function handleWebSearch({ args, logger }) {
     if (!config.tools.web.enabled) {
       throw new AppError({
@@ -70,23 +70,31 @@ function createWebSearchHandler({ config }) {
     });
 
     const normalized = normalizeBraveSearchResults(payload, maxResults);
+    const resultsWithIds = documentCache.putSearchResults({
+      query,
+      results: normalized.results,
+    });
+
     logger.debug(
       {
         mode,
         queryExcerpt: excerptText(query),
-        resultCount: normalized.results.length,
-        contextLength: normalized.contextText.length,
+        resultCount: resultsWithIds.length,
       },
-      "web_search completed via Brave API"
+      "web_search completed and stored result handles"
     );
 
     return {
       query,
       mode,
       max_tokens: maxTokens,
-      result_count: normalized.results.length,
-      context: normalized.contextText,
-      results: normalized.results,
+      result_count: resultsWithIds.length,
+      results: resultsWithIds.map((result) => ({
+        result_id: result.result_id,
+        title: result.title,
+        url: result.url,
+        snippet: excerptText(result.snippet, 280),
+      })),
     };
   };
 }

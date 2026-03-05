@@ -8,7 +8,7 @@ Sage now runs as an OpenAI-compatible API server that layers Sage's long-term me
 - `GET /v1/models`
 - `POST /v1/chat/completions`
 - Streaming chat completions via SSE
-- Tool calling for non-stream chat completions
+- Native tool calling for non-stream and streaming chat completions
 
 ## Documentation
 
@@ -68,7 +68,11 @@ Open WebUI will call `/v1/models` to discover available upstream models. If `SAG
 - Clients must resend chat history in `messages` for every request.
 - Sage still recalls long-term memory for the latest user message.
 - After a response completes, Sage tries to extract and store new long-term memories in the background.
-- For non-stream chat requests, Sage can execute built-in tools and configured MCP tools in a bounded loop.
+- Sage can execute built-in tools and configured MCP tools in a bounded loop for both non-stream and streaming requests.
+- Built-in web retrieval uses a document-handle workflow:
+  - `web_search` returns metadata/snippets plus stable `result_id` handles.
+  - `get_url_content` fetches and caches full page text server-side and returns `document_id`.
+  - `read_document_chunk` and `find_in_document` progressively read/search cached documents.
 
 ## V1 limitations
 
@@ -89,6 +93,9 @@ Open WebUI will call `/v1/models` to discover available upstream models. If `SAG
 - `WEB_SEARCH_ENABLED`: enable or disable built-in Brave web tools
 - `BRAVE_API_KEY`: Brave Search API key for built-in web tools
 - `SAGE_BRAVE_*`: Brave mode, locale, safesearch, limits and timeout controls
+- `SAGE_DOC_CACHE_TTL_MS`: cached document/result handle TTL in milliseconds
+- `SAGE_DOC_CACHE_MAX_DOCS`: maximum in-memory cached documents
+- `SAGE_DOC_CACHE_MAX_DOC_BYTES`: max normalized bytes per cached document
 
 ## MCP server config format
 

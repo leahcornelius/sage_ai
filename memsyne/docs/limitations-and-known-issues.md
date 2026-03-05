@@ -13,24 +13,19 @@ This document separates **confirmed behavior/constraints** from **code-level fin
 1. Memory extraction runs in background best-effort and does not affect immediate API success.
 2. Brave web tools can be enabled but still fail at runtime if Brave API key is missing/invalid, or remote retrieval fails and direct URL fallback is blocked by target site/network.
 3. MCP server support is transport-dependent; startup behavior for each server is controlled by its `required` flag.
+4. Document cache is process-local in-memory state only; `document_id` and `result_id` handles are not shared across Sage instances and are lost on restart.
+5. Direct URL fallback currently allows public/private host targets over `http/https`; production deployments should place network egress controls around Sage.
 
 ## Code-Level Findings (Documented, Not Fixed)
 
-## Finding 1: Missing `AppError` import in tool loop overflow path
-- **Location:** `src/services/chat-service.js` (`runToolLoop` throws `new AppError(...)`)
-- **Current behavior:** `AppError` is referenced but not imported in this module.
-- **Impact:** If tool rounds exceed `SAGE_TOOL_MAX_ROUNDS`, this branch can throw a `ReferenceError` instead of the intended structured `AppError`.
-- **Trigger condition:** Assistant repeatedly returns tool calls and loop reaches max rounds.
-- **Suggested fix direction:** Import `AppError` in `chat-service.js` from `src/errors/app-error.js` and keep the structured throw path.
-
-## Finding 2: `streamRequested` logging can be unreliable at `onRequest`
+## Finding 1: `streamRequested` logging can be unreliable at `onRequest`
 - **Location:** `src/http/hooks/request-logging.js`
 - **Current behavior:** Hook reads `request.body` inside `onRequest`.
 - **Impact:** `request.body` may not be parsed at this stage, so `streamRequested` can be undefined even for streaming requests.
 - **Trigger condition:** Any request where body parsing has not yet occurred at `onRequest` time.
 - **Suggested fix direction:** Move stream flag extraction to a later hook stage (for example `preHandler`) or infer from validated payload in route-level logging.
 
-## Finding 3: Prompt file includes visible mojibake artifacts
+## Finding 2: Prompt file includes visible mojibake artifacts
 - **Location:** `system_prompt.yaml`
 - **Current behavior:** Some characters appear as malformed encoding artifacts (for example in hyphenated words).
 - **Impact:** Prompt readability and instruction fidelity can degrade, and phrasing passed upstream can differ from intended author text.
@@ -38,10 +33,9 @@ This document separates **confirmed behavior/constraints** from **code-level fin
 - **Suggested fix direction:** Normalize file encoding to UTF-8 and clean affected text literals.
 
 ## Suggested TODO Backlog
-1. Import and use `AppError` correctly in tool-round overflow branch.
-2. Shift `streamRequested` logging signal to a parsed-body stage.
-3. Clean and re-save `system_prompt.yaml` with consistent UTF-8 content.
-4. Add explicit integration tests for:
+1. Shift `streamRequested` logging signal to a parsed-body stage.
+2. Clean and re-save `system_prompt.yaml` with consistent UTF-8 content.
+3. Add explicit integration tests for:
    - max tool round overflow path
    - stream logging field reliability
    - prompt load text integrity checks

@@ -8,6 +8,7 @@ import { createMemoryService } from "./services/memory-service.js";
 import { createModelService } from "./services/model-service.js";
 import { createPromptService } from "./services/prompt-service.js";
 import { createMcpClientManager } from "./tools/mcp/mcp-client-manager.js";
+import { createDocumentCache } from "./tools/document-cache.js";
 import { createToolRegistry } from "./tools/tool-registry.js";
 import { createToolExecutor } from "./tools/tool-executor.js";
 
@@ -38,6 +39,9 @@ async function main() {
       {
         legacyLogLevel: config.logging.level,
         prettyConsoleLogs: config.logging.pretty,
+        documentCacheTtlMs: config.tools.documentCache.ttlMs,
+        documentCacheMaxDocs: config.tools.documentCache.maxDocuments,
+        documentCacheMaxDocBytes: config.tools.documentCache.maxDocumentBytes,
       },
       "Resolved logging configuration"
     );
@@ -54,11 +58,16 @@ async function main() {
     });
     mcpClientManager = createMcpClientManager({ config, logger });
     await mcpClientManager.initialize();
+    const documentCache = createDocumentCache({
+      config,
+      logger,
+    });
     const toolRegistry = createToolRegistry({
       config,
       logger,
       memoryService,
       mcpClientManager,
+      documentCache,
     });
     const toolExecutor = createToolExecutor({
       config,

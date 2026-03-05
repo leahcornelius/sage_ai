@@ -4,6 +4,7 @@ import {
 } from "../http/serializers/openai-chat.js";
 import { excerptText, objectKeys, textLength } from "../logging/safe-debug.js";
 import { AppError } from "../errors/app-error.js";
+
 /**
  * Composes Sage-specific context around standard OpenAI chat completion
  * requests while keeping the external HTTP layer stateless.
@@ -113,30 +114,6 @@ function createChatService({
 
   async function* streamChatCompletion({ requestBody, signal, logger: requestLogger }) {
     const operationLogger = requestLogger || serviceLogger;
-    if (Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
-      const completion = await createChatCompletion({
-        requestBody: {
-          ...requestBody,
-          stream: false,
-        },
-        signal,
-        logger: operationLogger,
-        skipMemoryExtraction: true,
-      });
-
-      operationLogger.debug(
-        {
-          model: requestBody.model,
-          toolCount: requestBody.tools.length,
-          streamMode: "tool-fallback",
-        },
-        "Streaming request completed through tool execution fallback"
-      );
-
-      yield* completionToStreamChunks(completion);
-      return;
-    }
-
     await modelService.assertModelAvailable(requestBody.model, { logger: operationLogger });
 
     const lastUserMessage = requestBody.lastUserMessage;
@@ -150,16 +127,19 @@ function createChatService({
       recalledMemories,
       logger: operationLogger,
     });
+    const executionContext = getExecutionContext({
+      requestBody,
+      toolRegistry,
+      logger: operationLogger,
+    });
+    if (executionContext.tools.length > 0) {
+      upstreamRequest.tools = executionContext.tools;
+    }
+    if (requestBody.toolChoice) {
+      upstreamRequest.tool_choice = requestBody.toolChoice;
+    }
 
     const startedAt = Date.now();
-    const stream = await openaiClient.chat.completions.create(
-      {
-        ...upstreamRequest,
-        stream: true,
-      },
-      { signal }
-    );
-
     operationLogger.info(
       {
         model: requestBody.model,
@@ -173,6 +153,7 @@ function createChatService({
         model: requestBody.model,
         stream: true,
         upstreamOptionKeys: objectKeys(requestBody.upstreamOptions),
+        toolCount: executionContext.tools.length,
       },
       "Opened upstream streaming request"
     );
@@ -183,13 +164,41 @@ function createChatService({
     let firstChunkLatencyMs = null;
 
     try {
-      for await (const chunk of stream) {
-        if (firstChunkLatencyMs === null) {
-          firstChunkLatencyMs = Date.now() - startedAt;
+      if (shouldExecuteTools({ requestBody, toolsEnabled: executionContext.tools.length > 0 })) {
+        yield* runStreamingToolLoop({
+          upstreamRequest,
+          requestBody,
+          executionContext,
+          signal,
+          operationLogger,
+          openaiClient,
+          toolExecutor,
+          maxRounds: config.tools.maxRounds,
+          onChunk: (chunk) => {
+            if (firstChunkLatencyMs === null) {
+              firstChunkLatencyMs = Date.now() - startedAt;
+            }
+            chunkCount += 1;
+            assistantMessage += extractAssistantTextFromChunk(chunk);
+          },
+        });
+      } else {
+        const stream = await openaiClient.chat.completions.create(
+          {
+            ...upstreamRequest,
+            stream: true,
+          },
+          { signal }
+        );
+
+        for await (const chunk of stream) {
+          if (firstChunkLatencyMs === null) {
+            firstChunkLatencyMs = Date.now() - startedAt;
+          }
+          chunkCount += 1;
+          assistantMessage += extractAssistantTextFromChunk(chunk);
+          yield chunk;
         }
-        chunkCount += 1;
-        assistantMessage += extractAssistantTextFromChunk(chunk);
-        yield chunk;
       }
       completed = true;
       operationLogger.info(
@@ -335,6 +344,181 @@ async function runToolLoop({
   });
 }
 
+async function* runStreamingToolLoop({
+  upstreamRequest,
+  requestBody,
+  executionContext,
+  signal,
+  operationLogger,
+  openaiClient,
+  toolExecutor,
+  maxRounds,
+  onChunk,
+}) {
+  const conversationMessages = Array.isArray(upstreamRequest.messages)
+    ? [...upstreamRequest.messages]
+    : [];
+  const basePayload = {
+    ...upstreamRequest,
+    messages: undefined,
+    stream: true,
+  };
+
+  for (let round = 0; round < maxRounds; round += 1) {
+    const stream = await openaiClient.chat.completions.create(
+      {
+        ...basePayload,
+        messages: conversationMessages,
+      },
+      { signal }
+    );
+
+    const aggregate = {
+      assistantContent: "",
+      streamedToolCalls: [],
+    };
+    for await (const chunk of stream) {
+      onChunk?.(chunk);
+      applyStreamChunkToAggregate(chunk, aggregate);
+      yield chunk;
+    }
+
+    const toolCalls = normalizeStreamedToolCalls(aggregate.streamedToolCalls);
+    conversationMessages.push({
+      role: "assistant",
+      content: aggregate.assistantContent,
+      ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+    });
+
+    if (toolCalls.length === 0) {
+      operationLogger.debug(
+        {
+          model: requestBody.model,
+          round,
+          stopReason: "assistant_stream_without_tool_calls",
+        },
+        "Streaming tool loop completed"
+      );
+      return;
+    }
+
+    operationLogger.debug(
+      {
+        model: requestBody.model,
+        round,
+        toolCallCount: toolCalls.length,
+      },
+      "Executing tool calls from streamed assistant response"
+    );
+
+    const toolResults = await toolExecutor.executeToolCalls({
+      toolCalls,
+      executionContext,
+      requestLogger: operationLogger,
+    });
+
+    const handledResults = toolResults.filter((result) => result.handled);
+    if (handledResults.length === 0) {
+      operationLogger.debug(
+        {
+          model: requestBody.model,
+          round,
+          stopReason: "no_server_handlers_for_tool_calls",
+        },
+        "Streaming tool loop returned raw tool calls to caller"
+      );
+      return;
+    }
+
+    for (const result of handledResults) {
+      conversationMessages.push({
+        role: "tool",
+        tool_call_id: result.toolCallId,
+        content: result.content,
+      });
+    }
+  }
+
+  throw new AppError({
+    statusCode: 400,
+    code: "invalid_request_error",
+    type: "invalid_request_error",
+    message: `Tool execution exceeded the maximum number of rounds (${maxRounds}).`,
+  });
+}
+
+function applyStreamChunkToAggregate(chunk, aggregate) {
+  const choice = Array.isArray(chunk?.choices) ? chunk.choices[0] : null;
+  const delta = choice?.delta;
+  if (!delta || typeof delta !== "object") {
+    return;
+  }
+
+  aggregate.assistantContent += extractAssistantTextFromChunk({
+    choices: [{ delta }],
+  });
+
+  if (Array.isArray(delta.tool_calls)) {
+    mergeToolCallDeltas(aggregate.streamedToolCalls, delta.tool_calls);
+  }
+}
+
+function mergeToolCallDeltas(current, deltas) {
+  for (const delta of deltas) {
+    const index = Number.isInteger(delta?.index) && delta.index >= 0 ? delta.index : current.length;
+    const existing = current[index] || {
+      id: "",
+      type: "function",
+      function: {
+        name: "",
+        arguments: "",
+      },
+    };
+
+    if (typeof delta?.id === "string" && delta.id) {
+      existing.id = delta.id;
+    }
+    if (typeof delta?.type === "string" && delta.type) {
+      existing.type = delta.type;
+    }
+    if (delta?.function && typeof delta.function === "object") {
+      if (typeof delta.function.name === "string" && delta.function.name) {
+        existing.function.name += delta.function.name;
+      }
+      if (typeof delta.function.arguments === "string" && delta.function.arguments) {
+        existing.function.arguments += delta.function.arguments;
+      }
+    }
+
+    current[index] = existing;
+  }
+}
+
+function normalizeStreamedToolCalls(toolCalls) {
+  if (!Array.isArray(toolCalls)) {
+    return [];
+  }
+
+  return toolCalls
+    .map((toolCall) => {
+      const id = typeof toolCall?.id === "string" ? toolCall.id : "";
+      const name = typeof toolCall?.function?.name === "string" ? toolCall.function.name : "";
+      const rawArgs = toolCall?.function?.arguments;
+      if (!id || !name) {
+        return null;
+      }
+      return {
+        id,
+        type: "function",
+        function: {
+          name,
+          arguments: typeof rawArgs === "string" && rawArgs ? rawArgs : "{}",
+        },
+      };
+    })
+    .filter(Boolean);
+}
+
 function normalizeToolCalls(toolCalls) {
   if (!Array.isArray(toolCalls)) {
     return [];
@@ -371,46 +555,6 @@ function shouldExecuteTools({ requestBody, toolsEnabled }) {
   }
 
   return true;
-}
-
-function* completionToStreamChunks(completion) {
-  const created = Number.isInteger(completion?.created)
-    ? completion.created
-    : Math.floor(Date.now() / 1000);
-  const model = completion?.model;
-  const id = completion?.id || "chatcmpl-tool-stream";
-  const assistantContent = extractAssistantTextFromCompletion(completion);
-
-  yield {
-    id,
-    object: "chat.completion.chunk",
-    created,
-    model,
-    choices: [
-      {
-        index: 0,
-        delta: {
-          role: "assistant",
-          content: assistantContent,
-        },
-      },
-    ],
-  };
-
-  yield {
-    id,
-    object: "chat.completion.chunk",
-    created,
-    model,
-    choices: [
-      {
-        index: 0,
-        delta: {},
-        finish_reason: "stop",
-      },
-    ],
-    usage: completion?.usage,
-  };
 }
 
 function buildUpstreamRequest({ requestBody, promptService, memoryService, recalledMemories, logger }) {

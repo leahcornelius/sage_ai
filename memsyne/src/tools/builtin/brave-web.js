@@ -2,8 +2,8 @@ import { AppError } from "../../errors/app-error.js";
 import { excerptText } from "../../logging/safe-debug.js";
 
 const BRAVE_WEB_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
-const ALLOWED_MAX_TOKENS = new Set([2048, 8192, 16384, 32768]);
-const DEFAULT_MAX_TOKENS = 16384;
+const ALLOWED_MAX_TOKENS = new Set([2048, 8192, 16384]);
+const DEFAULT_MAX_TOKENS = 8192;
 
 function resolveBraveMode(modeArg, defaultMode) {
   const mode = typeof modeArg === "string" ? modeArg.trim().toLowerCase() : defaultMode;
@@ -20,7 +20,7 @@ function resolveMaxTokens(value) {
 
   const parsed = Number.parseInt(value, 10);
   if (!ALLOWED_MAX_TOKENS.has(parsed)) {
-    throw invalidToolArguments("max_tokens must be one of: 2048, 8192, 16384, 32768.");
+    throw invalidToolArguments("max_tokens must be one of: 2048, 8192, 16384.");
   }
   return parsed;
 }
@@ -125,14 +125,17 @@ function normalizeBraveSearchResults(payload, maxResults) {
     : Array.isArray(payload?.results)
       ? payload.results
       : [];
-  const normalizedResults = rawResults.slice(0, maxResults).map((item) => normalizeResult(item));
+  const results = rawResults.slice(0, maxResults).map((item) => normalizeResult(item));
   const contextText =
     extractContextText(payload) ||
-    normalizedResults.map((result) => result.context || result.snippet).filter(Boolean).join("\n\n");
+    results
+      .map((result) => result.context || result.snippet)
+      .filter(Boolean)
+      .join("\n\n");
 
   return {
-    results: normalizedResults,
-    contextText: excerptText(contextText, 12000),
+    results,
+    contextText: excerptText(contextText, 12_000),
   };
 }
 
@@ -140,15 +143,14 @@ function normalizeResult(item) {
   const snippets = Array.isArray(item?.extra_snippets)
     ? item.extra_snippets.map((snippet) => excerptText(String(snippet || ""), 500)).filter(Boolean)
     : [];
-
   const description = excerptText(String(item?.description || item?.snippet || ""), 500);
-  const context = [description, ...snippets].filter(Boolean).join(" ");
+  const context = [description, ...snippets].filter(Boolean).join(" ").trim();
 
   return {
     title: excerptText(String(item?.title || ""), 200),
     url: String(item?.url || item?.link || ""),
     snippet: description,
-    context: excerptText(context, 2000),
+    context: excerptText(context, 2_500),
   };
 }
 
@@ -177,7 +179,7 @@ function extractContextText(payload) {
   return "";
 }
 
-async function fetchUrlContentDirect({ url, maxTokens, timeoutMs }) {
+async function fetchUrlContentDirect({ url, timeoutMs }) {
   const signal = AbortSignal.timeout(timeoutMs);
   const response = await fetch(url, {
     method: "GET",
@@ -208,11 +210,12 @@ async function fetchUrlContentDirect({ url, maxTokens, timeoutMs }) {
   }
 
   const raw = await response.text();
-  const text = contentType.includes("text/html") ? extractTextFromHtml(raw) : raw;
-  const bounded = truncateToTokenBudget(text, maxTokens);
+  const title = contentType.includes("text/html") ? extractTitleFromHtml(raw) : "";
+  const text = contentType.includes("text/html") ? extractTextFromHtml(raw) : raw.trim();
 
   return {
-    content: bounded,
+    content: text,
+    title,
     metadata: {
       final_url: response.url || url,
       content_type: contentType || null,
@@ -221,8 +224,16 @@ async function fetchUrlContentDirect({ url, maxTokens, timeoutMs }) {
   };
 }
 
+function extractTitleFromHtml(html) {
+  const match = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(String(html || ""));
+  if (!match) {
+    return "";
+  }
+  return match[1].replace(/\s+/g, " ").trim();
+}
+
 function extractTextFromHtml(html) {
-  return html
+  return String(html || "")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
@@ -236,13 +247,14 @@ function extractTextFromHtml(html) {
     .trim();
 }
 
-function truncateToTokenBudget(value, maxTokens) {
-  const text = String(value || "").trim();
-  const maxChars = maxTokens * 4;
-  if (text.length <= maxChars) {
-    return text;
+function buildPreviewForTokens(content, maxTokens) {
+  const text = typeof content === "string" ? content.trim() : "";
+  if (!text) {
+    return "";
   }
-  return `${text.slice(0, maxChars)} ...[truncated]`;
+
+  const maxChars = maxTokens >= 16_384 ? 1_200 : maxTokens >= 8_192 ? 800 : 450;
+  return excerptText(text, maxChars);
 }
 
 function invalidToolArguments(message) {
@@ -264,4 +276,5 @@ export {
   callBraveWebApi,
   normalizeBraveSearchResults,
   fetchUrlContentDirect,
+  buildPreviewForTokens,
 };

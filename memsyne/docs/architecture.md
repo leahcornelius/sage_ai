@@ -23,7 +23,8 @@ Sage is structured as a stateless HTTP facade that enriches upstream OpenAI chat
   - `openai-client`: upstream OpenAI SDK client.
   - `mnemosyne-client`: long-term memory backend client.
 - **Tools (`src/tools/*`)**
-  - Built-in tools: `get_memories`, `add_memory`, `web_search`, `get_url_content`.
+  - Built-in tools: `get_memories`, `add_memory`, `web_search`, `get_url_content`, `read_document_chunk`, `find_in_document`.
+  - Document cache for web retrieval handles (`document_id`/`result_id`).
   - MCP adapter/manager for namespaced external tools.
   - Tool executor with timeout and bounded parallelism.
 
@@ -59,8 +60,11 @@ Sage startup path in `src/index.js`:
 
 ## B) Stream chat completion
 1. Same validation/model check/memory recall/upstream payload build.
-2. Open upstream streaming completion.
-3. Forward chunks as SSE events to client.
+2. If tools are active, run native multi-round streaming tool loop:
+   - forward upstream chunks (including `tool_calls` deltas),
+   - execute server-side tool calls between rounds,
+   - continue streaming subsequent assistant rounds.
+3. If tools are not active, forward upstream streaming completion directly.
 4. Send `[DONE]` terminator.
 5. Trigger post-stream background memory extraction using collected assistant text.
 
@@ -70,11 +74,11 @@ Sage startup path in `src/index.js`:
 3. Successful handled results are appended as `tool` role messages.
 4. Loop repeats until assistant returns normal message or `maxRounds` reached.
 
-## D) Stream + tools fallback
-If `stream: true` and tools are present, current behavior is:
-1. Run non-stream completion path internally.
-2. Convert final completion to synthetic stream chunks.
-3. Emit SSE chunks and `[DONE]`.
+## D) Web document-handle workflow
+1. `web_search` returns metadata/snippets plus stable `result_id` handles.
+2. `get_url_content` resolves `url`/`result_id`, fetches content, and stores normalized full text in server-side cache.
+3. Tool response returns `document_id` + preview/metadata (not full body).
+4. Model uses `read_document_chunk` and `find_in_document` to progressively read/search cached content.
 
 ## Memory Lifecycle
 1. **Recall phase (pre-generation)**

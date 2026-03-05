@@ -125,6 +125,23 @@ function createConfig(env = process.env) {
           "SAGE_BRAVE_SEARCH_LANG"
         ),
       },
+      documentCache: {
+        ttlMs: parsePositiveInteger(
+          env.SAGE_DOC_CACHE_TTL_MS,
+          3_600_000,
+          "SAGE_DOC_CACHE_TTL_MS"
+        ),
+        maxDocuments: parsePositiveInteger(
+          env.SAGE_DOC_CACHE_MAX_DOCS,
+          500,
+          "SAGE_DOC_CACHE_MAX_DOCS"
+        ),
+        maxDocumentBytes: parsePositiveInteger(
+          env.SAGE_DOC_CACHE_MAX_DOC_BYTES,
+          4_194_304,
+          "SAGE_DOC_CACHE_MAX_DOC_BYTES"
+        ),
+      },
     },
   };
 }
