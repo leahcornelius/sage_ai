@@ -1,0 +1,30 @@
+{
+  "name": "sage-openai-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAI-compatible API server for Sage with long-term memory.",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test",
+    "migrate:importance": "node scripts/migrate-importance-scale.js",
+    "verify:memory-deps": "node scripts/verify-memory-deps.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@getzep/zep-cloud": "3.17.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "better-sqlite3": "^12.6.2",
+    "dotenv": "^17.3.1",
+    "fastify": "^5.7.4",
+    "ioredis": "5.10.0",
+    "js-tiktoken": "^1.0.21",
+    "js-yaml": "^4.1.1",
+    "mem0ai": "2.2.4",
+    "mnemosy-ai": "^1.0.1",
+    "openai": "^6.25.0",
+    "pino": "^10.3.1",
+    "pino-pretty": "^13.1.3"
+  }
+}
