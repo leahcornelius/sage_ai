@@ -92,6 +92,7 @@ Open WebUI will call `/v1/models` to discover available upstream models. If `SAG
 - `SAGE_MEMORY_EXTRACT_EVERY`: extraction cadence in user/assistant messages (default `4`)
 - `SAGE_MEM_EXT_HISTORY_MULTIPLIER`: prior-memory window multiplier (default `2.0`)
 - `SAGE_CONVERSATION_DB_PATH`: SQLite path for persisted conversation history (default `./data/sage-conversations.sqlite`)
+- OpenAI reasoning controls (`reasoning_effort` / `reasoning`) are supported as chat request passthrough options
 - `SAGE_CORS_ORIGIN`: enable CORS for a frontend origin
 - `OPENAI_BASE_URL`: point Sage at a compatible upstream if needed
 - `SAGE_TOOLS_ENABLED`: enable server tool support

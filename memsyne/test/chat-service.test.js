@@ -43,9 +43,10 @@ test("chat service builds upstream messages in the correct order", async () => {
   await service.createChatCompletion({
     requestBody: {
       model: "gpt-5.2",
+      conversationId: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
       stream: false,
-      upstreamOptions: { temperature: 0.2 },
+      upstreamOptions: { temperature: 0.2, reasoning_effort: "high" },
       lastUserMessage: "Hello",
     },
     signal: AbortSignal.timeout(1000),
@@ -54,6 +55,7 @@ test("chat service builds upstream messages in the correct order", async () => {
 
   assert.equal(capturedRequest.model, "gpt-5.2");
   assert.equal(capturedRequest.temperature, 0.2);
+  assert.equal(capturedRequest.reasoning_effort, "high");
   assert.deepEqual(capturedRequest.messages.slice(0, 3), [
     { role: "system", content: "Base system prompt" },
     { role: "system", content: capturedRequest.messages[1].content },

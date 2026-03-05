@@ -7,6 +7,8 @@ const PASSTHROUGH_FIELDS = [
   "top_p",
   "max_tokens",
   "max_completion_tokens",
+  "reasoning_effort",
+  "reasoning",
   "stop",
   "seed",
   "presence_penalty",
@@ -60,6 +62,7 @@ function validateChatCompletionsRequest(body) {
   const messages = normalizeMessages(body.messages);
   const stream = body.stream === true;
   const upstreamOptions = pickDefinedFields(body, PASSTHROUGH_FIELDS);
+  normalizeReasoningControls(upstreamOptions);
   if (stream && body.stream_options !== undefined) {
     upstreamOptions.stream_options = body.stream_options;
   }
@@ -231,6 +234,21 @@ function normalizeConversationId(body) {
   }
 
   return conversationId;
+}
+
+function normalizeReasoningControls(upstreamOptions) {
+  if (upstreamOptions.reasoning_effort === "none") {
+    delete upstreamOptions.reasoning_effort;
+  }
+
+  if (
+    upstreamOptions.reasoning &&
+    typeof upstreamOptions.reasoning === "object" &&
+    !Array.isArray(upstreamOptions.reasoning) &&
+    upstreamOptions.reasoning.effort === "none"
+  ) {
+    delete upstreamOptions.reasoning;
+  }
 }
 
 export { validateChatCompletionsRequest };

@@ -65,6 +65,8 @@ The following pass through to upstream OpenAI chat completions:
 - `top_p`
 - `max_tokens`
 - `max_completion_tokens`
+- `reasoning_effort`
+- `reasoning`
 - `stop`
 - `seed`
 - `presence_penalty`
@@ -73,6 +75,10 @@ The following pass through to upstream OpenAI chat completions:
 - `stream_options` (only passed when `stream: true`)
 
 `conversation_id`/`conversationId` is used by Sage for server-side conversation tracking and is **not** forwarded upstream.
+
+Reasoning behavior:
+- If reasoning fields are omitted, the upstream model decides automatically.
+- `reasoning_effort: "none"` (or `reasoning.effort: "none"`) is treated as unset by Sage.
 
 ### Tool-related fields
 - `tools`: array of function tool definitions

@@ -36,3 +36,29 @@ test("validateChatCompletionsRequest rejects mismatched aliases", () => {
     /must match/
   );
 });
+
+test("validateChatCompletionsRequest passes reasoning controls to upstream options", () => {
+  const validated = validateChatCompletionsRequest({
+    model: "gpt-5.2",
+    conversation_id: "conv-1",
+    messages: [{ role: "user", content: "Hello" }],
+    reasoning_effort: "high",
+    reasoning: { effort: "medium" },
+  });
+
+  assert.equal(validated.upstreamOptions.reasoning_effort, "high");
+  assert.deepEqual(validated.upstreamOptions.reasoning, { effort: "medium" });
+});
+
+test("validateChatCompletionsRequest treats reasoning none as unset", () => {
+  const validated = validateChatCompletionsRequest({
+    model: "gpt-5.2",
+    conversation_id: "conv-1",
+    messages: [{ role: "user", content: "Hello" }],
+    reasoning_effort: "none",
+    reasoning: { effort: "none" },
+  });
+
+  assert.equal(validated.upstreamOptions.reasoning_effort, undefined);
+  assert.equal(validated.upstreamOptions.reasoning, undefined);
+});
