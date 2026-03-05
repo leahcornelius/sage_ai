@@ -15,6 +15,7 @@ function createChatService({
   memoryService,
   promptService,
   modelService,
+  conversationStore,
   toolRegistry,
   toolExecutor,
   config,
@@ -30,6 +31,11 @@ function createChatService({
   }) {
     const operationLogger = requestLogger || serviceLogger;
     await modelService.assertModelAvailable(requestBody.model, { logger: operationLogger });
+    await synchronizeConversationForRequest({
+      conversationStore,
+      requestBody,
+      logger: operationLogger,
+    });
 
     const lastUserMessage = requestBody.lastUserMessage;
     const recalledMemories = await memoryService.recallRelevantMemories(lastUserMessage, {
@@ -87,6 +93,12 @@ function createChatService({
     );
 
     const assistantMessage = extractAssistantTextFromCompletion(completion);
+    appendAssistantMessageToConversation({
+      conversationStore,
+      conversationId: requestBody.conversationId,
+      assistantMessage,
+      logger: operationLogger,
+    });
     operationLogger.debug(
       {
         model: requestBody.model,
@@ -101,9 +113,9 @@ function createChatService({
       "Processed upstream chat completion response"
     );
     if (!skipMemoryExtraction) {
-      scheduleMemoryExtraction({
+      scheduleConversationMemoryExtraction({
         memoryService,
-        userMessage: lastUserMessage,
+        conversationId: requestBody.conversationId,
         assistantMessage,
         model: requestBody.model,
         logger: operationLogger,
@@ -116,6 +128,11 @@ function createChatService({
   async function* streamChatCompletion({ requestBody, signal, logger: requestLogger }) {
     const operationLogger = requestLogger || serviceLogger;
     await modelService.assertModelAvailable(requestBody.model, { logger: operationLogger });
+    await synchronizeConversationForRequest({
+      conversationStore,
+      requestBody,
+      logger: operationLogger,
+    });
 
     const lastUserMessage = requestBody.lastUserMessage;
     const recalledMemories = await memoryService.recallRelevantMemories(lastUserMessage, {
@@ -815,24 +832,73 @@ function buildUpstreamRequest({ requestBody, promptService, memoryService, recal
   };
 }
 
-function scheduleMemoryExtraction({ memoryService, userMessage, assistantMessage, model, logger }) {
-  if (!userMessage || !assistantMessage) {
+async function synchronizeConversationForRequest({ conversationStore, requestBody, logger }) {
+  if (!conversationStore || !requestBody?.conversationId) {
+    return;
+  }
+
+  try {
+    conversationStore.replaceConversationMessagesFromClient({
+      conversationId: requestBody.conversationId,
+      messages: requestBody.messages,
+    });
+  } catch (error) {
+    logger.warn(
+      {
+        err: error,
+        conversationId: requestBody.conversationId,
+      },
+      "Failed to mirror client conversation history before upstream request"
+    );
+  }
+}
+
+function appendAssistantMessageToConversation({
+  conversationStore,
+  conversationId,
+  assistantMessage,
+  logger,
+}) {
+  if (!conversationStore || !conversationId || typeof assistantMessage !== "string") {
+    return;
+  }
+
+  try {
+    conversationStore.appendAssistantMessage({
+      conversationId,
+      content: assistantMessage,
+    });
+  } catch (error) {
+    logger.warn(
+      { err: error, conversationId },
+      "Failed to append assistant message to conversation store"
+    );
+  }
+}
+
+function scheduleConversationMemoryExtraction({
+  memoryService,
+  conversationId,
+  assistantMessage,
+  model,
+  logger,
+}) {
+  if (!conversationId || !assistantMessage) {
     logger.debug(
       {
         model,
-        userMessageLength: textLength(userMessage),
+        conversationId,
         assistantMessageLength: textLength(assistantMessage),
       },
-      "Skipping background memory extraction due to missing conversation text"
+      "Skipping background memory extraction due to missing conversation context"
     );
     return;
   }
   logger.debug(
     {
       model,
-      userMessageLength: textLength(userMessage),
+      conversationId,
       assistantMessageLength: textLength(assistantMessage),
-      userMessageExcerpt: excerptText(userMessage),
       assistantMessageExcerpt: excerptText(assistantMessage),
     },
     "Scheduling background memory extraction"
@@ -840,7 +906,7 @@ function scheduleMemoryExtraction({ memoryService, userMessage, assistantMessage
 
   void memoryService
     .extractAndStoreMemories({
-      userMessage,
+      conversationId,
       assistantMessage,
       model,
       logger,

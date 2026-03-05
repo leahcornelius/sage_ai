@@ -7,6 +7,7 @@ import { createChatService } from "./services/chat-service.js";
 import { createMemoryService } from "./services/memory-service.js";
 import { createModelService } from "./services/model-service.js";
 import { createPromptService } from "./services/prompt-service.js";
+import { createConversationStore } from "./services/conversation-store.js";
 import { createMcpClientManager } from "./tools/mcp/mcp-client-manager.js";
 import { createDocumentCache } from "./tools/document-cache.js";
 import { createToolRegistry } from "./tools/tool-registry.js";
@@ -15,6 +16,7 @@ import { createToolExecutor } from "./tools/tool-executor.js";
 async function main() {
   let logger;
   let mcpClientManager;
+  let conversationStore;
 
   try {
     const config = createConfig();
@@ -27,6 +29,9 @@ async function main() {
         openaiBaseUrl: config.openai.baseUrl || "https://api.openai.com/v1",
         modelAllowlistCount: config.openai.modelAllowlist?.length || 0,
         memoryTopK: config.memory.topK,
+        memoryExtractEvery: config.memory.extractEvery,
+        memoryExtractionHistoryMultiplier: config.memory.extractionHistoryMultiplier,
+        conversationDbPath: config.memory.conversationDbPath,
         systemPromptPath: config.prompt.systemPromptPath,
         consoleLogLevel: config.logging.consoleLevel,
         fileLoggingEnabled: config.logging.fileEnabled,
@@ -48,11 +53,13 @@ async function main() {
 
     const openaiClient = createOpenAIClient(config);
     const mnemosyneClient = await createMnemosyneClient({ config, logger });
+    conversationStore = createConversationStore({ config, logger });
     const promptService = createPromptService({ config, logger });
     const modelService = createModelService({ openaiClient, config, logger });
     const memoryService = createMemoryService({
       mnemosyneClient,
       openaiClient,
+      conversationStore,
       config,
       logger,
     });
@@ -78,6 +85,7 @@ async function main() {
       memoryService,
       promptService,
       modelService,
+      conversationStore,
       toolRegistry,
       toolExecutor,
       config,
@@ -92,6 +100,7 @@ async function main() {
         memoryService,
         modelService,
         promptService,
+        conversationStore,
       },
     });
 
@@ -106,6 +115,9 @@ async function main() {
 
     logger.info({ address: app.server.address() }, "Sage OpenAI-compatible API server is listening");
   } catch (error) {
+    if (conversationStore) {
+      conversationStore.close();
+    }
     if (mcpClientManager) {
       await mcpClientManager.close();
     }
@@ -132,6 +144,7 @@ function createShutdownHandler(app, logger, mcpClientManager) {
 
     try {
       await mcpClientManager?.close();
+      app.sageServices.conversationStore?.close?.();
       await app.close();
       logger.info("Sage server shutdown complete");
       await flushLogger(logger);

@@ -60,6 +60,21 @@ function createConfig(env = process.env) {
     memory: {
       topK: parsePositiveInteger(env.SAGE_MEMORY_TOP_K, 5, "SAGE_MEMORY_TOP_K"),
       extractionModel: optionalString(env.SAGE_MEMORY_EXTRACTION_MODEL),
+      summaryModel: optionalString(env.SAGE_MEMORY_SUMMARY_MODEL),
+      extractEvery: parsePositiveInteger(
+        env.SAGE_MEMORY_EXTRACT_EVERY,
+        4,
+        "SAGE_MEMORY_EXTRACT_EVERY"
+      ),
+      extractionHistoryMultiplier: parsePositiveNumber(
+        env.SAGE_MEM_EXT_HISTORY_MULTIPLIER,
+        2.0,
+        "SAGE_MEM_EXT_HISTORY_MULTIPLIER"
+      ),
+      conversationDbPath: path.resolve(
+        process.cwd(),
+        optionalString(env.SAGE_CONVERSATION_DB_PATH) || "./data/sage-conversations.sqlite"
+      ),
       mnemosyne: {
         vectorDbUrl:
           optionalString(env.MNEMOSYNE_VECTOR_DB_URL) || "http://localhost:6333",
@@ -180,6 +195,24 @@ function parsePositiveInteger(value, fallback, name) {
       code: "config_error",
       type: "server_error",
       message: `${name} must be a positive integer.`,
+    });
+  }
+
+  return parsed;
+}
+
+function parsePositiveNumber(value, fallback, name) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new AppError({
+      statusCode: 500,
+      code: "config_error",
+      type: "server_error",
+      message: `${name} must be a positive number.`,
     });
   }
 

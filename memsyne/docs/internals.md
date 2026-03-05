@@ -58,6 +58,7 @@ src/
 | `src/providers/mnemosyne-client.js` | `createMnemosyneClient` | Mnemosyne backend client creation | `src/index.js` |
 | `src/services/chat-service.js` | `createChatService` | Main request orchestration, tool loop, streaming behavior | `src/index.js`, chat route |
 | `src/services/memory-service.js` | `createMemoryService` | Recall, context formatting, extraction/store and memory tools API | `src/index.js`, chat/tool layers |
+| `src/services/conversation-store.js` | `createConversationStore` | SQLite-backed conversation persistence and extraction metadata | `src/index.js`, chat/memory services |
 | `src/services/model-service.js` | `createModelService` | Upstream model cache, allowlist filtering, model existence checks | `src/index.js`, chat/model routes |
 | `src/services/prompt-service.js` | `createPromptService` | System prompt file loading and active prompt selection | `src/index.js`, chat service |
 | `src/tools/tool-registry.js` | `createToolRegistry` | Merge built-in, MCP, and client tools into effective tool context | `src/index.js`, chat service |
@@ -86,6 +87,7 @@ src/
 - Normalizes:
   - `messages` through `normalizeMessages`
   - `stream` to boolean
+  - `conversation_id`/`conversationId` to `conversationId`
   - passthrough upstream options
   - `tools` and `tool_choice`
   - `lastUserMessage` for memory recall
@@ -150,14 +152,12 @@ Handler map contains only server-resolvable tool handlers (built-in + MCP). Clie
 ## Deep Dive 6: Memory Extraction Pipeline
 
 ### `extractAndStoreMemories` (`src/services/memory-service.js`)
-1. Chooses extraction model (`SAGE_MEMORY_EXTRACTION_MODEL` or request model).
-2. Sends extraction prompt + conversation transcript to upstream OpenAI.
-3. Parses assistant output as JSON.
-4. Normalizes each memory entry:
-   - non-empty text required
-   - `importance` coerced to integer in range 1..10 else null
-   - optional `category` and `eventTime`
-5. Stores each memory best-effort through Mnemosyne client.
+1. Uses persisted conversation history and runs in batches (`SAGE_MEMORY_EXTRACT_EVERY`).
+2. Builds extraction context from rolling summary + prior extracted memories + latest message window.
+3. Parses strict JSON payload `{new:[...],updated:[...]}`.
+4. Normalizes `importance` to `0..1`.
+5. Stores new memories and applies ID-preserving updates for updated memories.
+6. Records extraction runs and source-message provenance in SQLite.
 
 Parse/store failures are logged and do not bubble to the client request path.
 
@@ -178,6 +178,10 @@ Derived from `src/config/env.js` and `.env.example`.
 | `SAGE_MODEL_CACHE_TTL_MS` | `60000` | Model list cache TTL |
 | `SAGE_MEMORY_TOP_K` | `5` | Number of recalled memories |
 | `SAGE_MEMORY_EXTRACTION_MODEL` | unset | Alternate model for extraction stage |
+| `SAGE_MEMORY_SUMMARY_MODEL` | unset | Optional model for rolling summary updates |
+| `SAGE_MEMORY_EXTRACT_EVERY` | `4` | Extraction cadence in user/assistant messages |
+| `SAGE_MEM_EXT_HISTORY_MULTIPLIER` | `2.0` | Prior-memory context window multiplier |
+| `SAGE_CONVERSATION_DB_PATH` | `./data/sage-conversations.sqlite` | SQLite path for conversation persistence |
 | `SAGE_SYSTEM_PROMPT_PATH` | `./system_prompt.yaml` | Active prompt file path |
 | `SAGE_TOOLS_ENABLED` | `true` | Global server tool support toggle |
 | `SAGE_TOOL_MAX_ROUNDS` | `6` | Max assistant-tool rounds in loop |
@@ -216,6 +220,7 @@ Derived from `src/config/env.js` and `.env.example`.
 |---|---|
 | `test/app.test.js` | Route auth behavior, endpoint responses, SSE wiring, error mapping |
 | `test/chat-service.test.js` | Upstream payload ordering, native stream behavior, tool loop execution |
+| `test/conversation-store.test.js` | SQLite mirror-sync and assistant-append persistence behavior |
 | `test/document-cache.test.js` | Document cache TTL/eviction/truncation/result-id mapping |
 | `test/messages.test.js` | Message normalization rules and unsupported content rejection |
 | `test/model-service.test.js` | Allowlist filtering and stale cache fallback |

@@ -62,6 +62,64 @@ test("chat service builds upstream messages in the correct order", async () => {
   assert.deepEqual(capturedRequest.messages[3], { role: "user", content: "Hello" });
 });
 
+test("chat service mirrors conversation history and appends assistant replies", async () => {
+  const mirrored = [];
+  const appended = [];
+  const service = createChatService({
+    openaiClient: {
+      chat: {
+        completions: {
+          create: async () => ({
+            id: "chatcmpl-test",
+            object: "chat.completion",
+            created: 1,
+            model: "gpt-5.2",
+            choices: [{ index: 0, message: { role: "assistant", content: "Done" }, finish_reason: "stop" }],
+          }),
+        },
+      },
+    },
+    memoryService: {
+      recallRelevantMemories: async () => [],
+      formatMemoryContext: () => "Memory context block",
+      extractAndStoreMemories: async () => 0,
+    },
+    promptService: {
+      getActiveSystemPrompt: () => "Base system prompt",
+    },
+    modelService: {
+      assertModelAvailable: async () => {},
+    },
+    conversationStore: {
+      replaceConversationMessagesFromClient: ({ conversationId, messages }) => {
+        mirrored.push({ conversationId, messages });
+      },
+      appendAssistantMessage: ({ conversationId, content }) => {
+        appended.push({ conversationId, content });
+      },
+    },
+    logger,
+  });
+
+  await service.createChatCompletion({
+    requestBody: {
+      model: "gpt-5.2",
+      conversationId: "conv-1",
+      messages: [{ role: "user", content: "Hello" }],
+      stream: false,
+      upstreamOptions: {},
+      lastUserMessage: "Hello",
+    },
+    signal: AbortSignal.timeout(1000),
+    logger,
+  });
+
+  assert.equal(mirrored.length, 1);
+  assert.equal(mirrored[0].conversationId, "conv-1");
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].content, "Done");
+});
+
 test("chat service streams chunks without triggering memory extraction directly", async () => {
   let extractionCalls = 0;
 

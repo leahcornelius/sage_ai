@@ -101,6 +101,7 @@ test("POST /v1/chat/completions accepts tools for non-stream requests", async ()
     headers: authHeader,
     payload: {
       model: "gpt-5.2",
+      conversation_id: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
       tools: [{ type: "function", function: { name: "get_memories", parameters: { type: "object" } } }],
     },
@@ -118,6 +119,7 @@ test("POST /v1/chat/completions accepts tools when stream=true", async () => {
     headers: authHeader,
     payload: {
       model: "gpt-5.2",
+      conversation_id: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
       stream: true,
       tools: [{ type: "function", function: { name: "get_memories" } }],
@@ -138,6 +140,7 @@ test("POST /v1/chat/completions returns non-stream completions", async () => {
     headers: authHeader,
     payload: {
       model: "gpt-5.2",
+      conversation_id: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
     },
   });
@@ -156,6 +159,7 @@ test("POST /v1/chat/completions streams SSE chunks", async () => {
     headers: authHeader,
     payload: {
       model: "gpt-5.2",
+      conversation_id: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
       stream: true,
     },
@@ -183,6 +187,7 @@ test("POST /v1/chat/completions triggers one memory extraction after streaming c
     headers: authHeader,
     payload: {
       model: "gpt-5.2",
+      conversation_id: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
       stream: true,
     },
@@ -215,11 +220,65 @@ test("POST /v1/chat/completions maps service errors into OpenAI error payloads",
     headers: authHeader,
     payload: {
       model: "gpt-5.2",
+      conversation_id: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
     },
   });
 
   assert.equal(response.statusCode, 404);
   assert.equal(response.json().error.code, "model_not_found");
+  await app.close();
+});
+
+test("POST /v1/chat/completions requires conversation id", async () => {
+  const app = await createTestApp();
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/chat/completions",
+    headers: authHeader,
+    payload: {
+      model: "gpt-5.2",
+      messages: [{ role: "user", content: "Hello" }],
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error.param, "conversation_id");
+  await app.close();
+});
+
+test("POST /v1/chat/completions accepts conversationId alias", async () => {
+  const app = await createTestApp();
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/chat/completions",
+    headers: authHeader,
+    payload: {
+      model: "gpt-5.2",
+      conversationId: "conv-camel",
+      messages: [{ role: "user", content: "Hello" }],
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  await app.close();
+});
+
+test("POST /v1/chat/completions rejects mismatched conversation id aliases", async () => {
+  const app = await createTestApp();
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/chat/completions",
+    headers: authHeader,
+    payload: {
+      model: "gpt-5.2",
+      conversation_id: "conv-a",
+      conversationId: "conv-b",
+      messages: [{ role: "user", content: "Hello" }],
+    },
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error.param, "conversation_id");
   await app.close();
 });

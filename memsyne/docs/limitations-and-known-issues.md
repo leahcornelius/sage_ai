@@ -7,7 +7,7 @@ This document separates **confirmed behavior/constraints** from **code-level fin
 2. Text-only message content support in V1 validation.
 3. `n` is effectively limited to `1`.
 4. Long-term memory is globally shared (not partitioned per tenant/user at HTTP layer).
-5. HTTP layer is stateless; clients must resend relevant conversation history in `messages` each request.
+5. Clients must still resend relevant conversation history in `messages` each request for upstream completion context; server-side conversation persistence is used for memory workflows only.
 
 ## Operational Caveats
 1. Memory extraction runs in background best-effort and does not affect immediate API success.

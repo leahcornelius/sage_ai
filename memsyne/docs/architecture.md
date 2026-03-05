@@ -1,7 +1,7 @@
 # High-Level Architecture
 
 ## Component Map
-Sage is structured as a stateless HTTP facade that enriches upstream OpenAI chat requests with memory context and optional tool execution.
+Sage is structured as an OpenAI-compatible HTTP facade that enriches upstream chat requests with memory context and optional tool execution, while persisting conversation history for memory workflows.
 
 - **App layer (`src/app.js`)**
   - Builds Fastify app.
@@ -16,7 +16,8 @@ Sage is structured as a stateless HTTP facade that enriches upstream OpenAI chat
   - Thin endpoints that validate input, delegate to services, and serialize output.
 - **Services (`src/services/*`)**
   - `chat-service`: request orchestration, memory recall, tool loop, upstream calls.
-  - `memory-service`: memory recall, context formatting, extraction/storage.
+  - `memory-service`: memory recall, context formatting, batch extraction/storage/update.
+  - `conversation-store`: SQLite persistence for conversation history and extraction metadata.
   - `model-service`: model list cache + availability checks.
   - `prompt-service`: loads active system prompt from YAML.
 - **Providers (`src/providers/*`)**
@@ -46,7 +47,7 @@ Sage startup path in `src/index.js`:
 
 ## A) Non-stream chat completion
 1. Client sends `POST /v1/chat/completions`.
-2. Route validates request body and extracts normalized fields.
+2. Route validates request body (including `conversation_id`/`conversationId`) and extracts normalized fields.
 3. `chat-service` verifies model is available.
 4. `memory-service` recalls relevant memories from latest user message.
 5. `chat-service` builds upstream message list:
@@ -56,7 +57,8 @@ Sage startup path in `src/index.js`:
    - Client-provided messages
 6. If tools are active, execute bounded tool loop; otherwise direct upstream completion.
 7. Return OpenAI-compatible completion JSON.
-8. Schedule best-effort background memory extraction/store.
+8. Append assistant reply to conversation store.
+9. Schedule best-effort background memory extraction/store every configured batch cadence.
 
 ## B) Stream chat completion
 1. Same validation/model check/memory recall/upstream payload build.
@@ -66,7 +68,8 @@ Sage startup path in `src/index.js`:
    - continue streaming subsequent assistant rounds.
 3. If tools are not active, forward upstream streaming completion directly.
 4. Send `[DONE]` terminator.
-5. Trigger post-stream background memory extraction using collected assistant text.
+5. Append streamed assistant reply to conversation store.
+6. Trigger post-stream background memory extraction using collected assistant text.
 
 ## C) Non-stream tool loop
 1. Model returns assistant `tool_calls`.
@@ -88,8 +91,10 @@ Sage startup path in `src/index.js`:
    - Recalled memories transformed into a deterministic memory context block.
    - Added as a system message before user conversation.
 3. **Extraction phase (post-generation)**
-   - Separate extraction prompt asks model for JSON memories.
-   - Parsed and normalized entries are stored best-effort.
+   - Extraction runs every `SAGE_MEMORY_EXTRACT_EVERY` user/assistant messages per conversation.
+   - Prompt includes rolling summary + prior extracted memories + latest message window.
+   - Parsed `{new, updated}` memories are normalized to importance `0..1`.
+   - Updated memories replace existing entries by memory ID.
    - Failures are logged and do not fail the client response.
 
 ## Model Lifecycle

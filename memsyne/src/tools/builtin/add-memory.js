@@ -14,7 +14,7 @@ const addMemoryTool = {
         },
         importance: {
           type: "integer",
-          description: "Memory importance score from 1 to 10.",
+          description: "Memory importance score from 1 to 10. Persisted scale is normalized to 0..1.",
           minimum: 1,
           maximum: 10,
         },

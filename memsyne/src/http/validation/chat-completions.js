@@ -65,11 +65,13 @@ function validateChatCompletionsRequest(body) {
   }
   const tools = normalizeTools(body.tools);
   const toolChoice = normalizeToolChoice(body.tool_choice);
+  const conversationId = normalizeConversationId(body);
 
   return {
     model,
     messages,
     stream,
+    conversationId,
     upstreamOptions,
     tools,
     toolChoice,
@@ -201,6 +203,34 @@ function normalizeToolChoice(value) {
       name: functionName,
     },
   };
+}
+
+function normalizeConversationId(body) {
+  const snake = typeof body.conversation_id === "string" ? body.conversation_id.trim() : "";
+  const camel = typeof body.conversationId === "string" ? body.conversationId.trim() : "";
+
+  if (snake && camel && snake !== camel) {
+    throw new AppError({
+      statusCode: 400,
+      code: "invalid_request_error",
+      type: "invalid_request_error",
+      message: "conversation_id and conversationId must match when both are provided.",
+      param: "conversation_id",
+    });
+  }
+
+  const conversationId = snake || camel;
+  if (!conversationId) {
+    throw new AppError({
+      statusCode: 400,
+      code: "invalid_request_error",
+      type: "invalid_request_error",
+      message: "conversation_id (or conversationId) is required.",
+      param: "conversation_id",
+    });
+  }
+
+  return conversationId;
 }
 
 export { validateChatCompletionsRequest };

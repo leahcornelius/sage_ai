@@ -66,8 +66,10 @@ Open WebUI will call `/v1/models` to discover available upstream models. If `SAG
 
 - Requests are stateless at the HTTP layer.
 - Clients must resend chat history in `messages` for every request.
+- Clients must include `conversation_id` (or `conversationId`) on chat requests.
 - Sage still recalls long-term memory for the latest user message.
-- After a response completes, Sage tries to extract and store new long-term memories in the background.
+- Sage now persists per-conversation message history server-side for memory workflows.
+- Memory extraction runs in background every `SAGE_MEMORY_EXTRACT_EVERY` user/assistant messages.
 - Sage can execute built-in tools and configured MCP tools in a bounded loop for both non-stream and streaming requests.
 - Built-in web retrieval uses a document-handle workflow:
   - `web_search` returns metadata/snippets plus stable `result_id` handles.
@@ -86,6 +88,10 @@ Open WebUI will call `/v1/models` to discover available upstream models. If `SAG
 
 - `SAGE_OPENAI_MODEL_ALLOWLIST`: comma-separated model ids
 - `SAGE_MEMORY_EXTRACTION_MODEL`: separate model for memory extraction
+- `SAGE_MEMORY_SUMMARY_MODEL`: optional model for rolling conversation summaries used by memory extraction
+- `SAGE_MEMORY_EXTRACT_EVERY`: extraction cadence in user/assistant messages (default `4`)
+- `SAGE_MEM_EXT_HISTORY_MULTIPLIER`: prior-memory window multiplier (default `2.0`)
+- `SAGE_CONVERSATION_DB_PATH`: SQLite path for persisted conversation history (default `./data/sage-conversations.sqlite`)
 - `SAGE_CORS_ORIGIN`: enable CORS for a frontend origin
 - `OPENAI_BASE_URL`: point Sage at a compatible upstream if needed
 - `SAGE_TOOLS_ENABLED`: enable server tool support
@@ -96,6 +102,12 @@ Open WebUI will call `/v1/models` to discover available upstream models. If `SAG
 - `SAGE_DOC_CACHE_TTL_MS`: cached document/result handle TTL in milliseconds
 - `SAGE_DOC_CACHE_MAX_DOCS`: maximum in-memory cached documents
 - `SAGE_DOC_CACHE_MAX_DOC_BYTES`: max normalized bytes per cached document
+
+## Maintenance scripts
+
+- `npm run migrate:importance`:
+  - one-time normalization of stored memory `importance` values from `1..10` to `0..1`
+  - idempotent; records completion marker in Qdrant `sage_meta`
 
 ## MCP server config format
 

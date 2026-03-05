@@ -36,6 +36,13 @@ test("createConfig parses optional settings and defaults", () => {
   assert.equal(config.logging.fileEnabled, true);
   assert.equal(config.logging.filePath, path.resolve(process.cwd(), "logs/sage.log"));
   assert.equal(config.memory.topK, 7);
+  assert.equal(config.memory.extractEvery, 4);
+  assert.equal(config.memory.extractionHistoryMultiplier, 2);
+  assert.equal(config.memory.summaryModel, null);
+  assert.equal(
+    config.memory.conversationDbPath,
+    path.resolve(process.cwd(), "data/sage-conversations.sqlite")
+  );
   assert.deepEqual(config.openai.modelAllowlist, ["gpt-4.1-mini", "gpt-5.2"]);
   assert.equal(config.tools.enabled, true);
   assert.equal(config.tools.maxRounds, 6);
@@ -198,5 +205,38 @@ test("createConfig rejects invalid document cache values", () => {
         SAGE_DOC_CACHE_TTL_MS: "0",
       }),
     /SAGE_DOC_CACHE_TTL_MS/
+  );
+});
+
+test("createConfig parses memory extraction cadence and conversation db path", () => {
+  const config = createConfig({
+    OPENAI_API_KEY: "openai-key",
+    SAGE_API_KEY: "sage-key",
+    BRAVE_API_KEY: "brave-key",
+    SAGE_MEMORY_EXTRACT_EVERY: "6",
+    SAGE_MEM_EXT_HISTORY_MULTIPLIER: "1.5",
+    SAGE_MEMORY_SUMMARY_MODEL: "gpt-4.1-mini",
+    SAGE_CONVERSATION_DB_PATH: "./tmp/sage-conversations.sqlite",
+  });
+
+  assert.equal(config.memory.extractEvery, 6);
+  assert.equal(config.memory.extractionHistoryMultiplier, 1.5);
+  assert.equal(config.memory.summaryModel, "gpt-4.1-mini");
+  assert.equal(
+    config.memory.conversationDbPath,
+    path.resolve(process.cwd(), "tmp/sage-conversations.sqlite")
+  );
+});
+
+test("createConfig rejects invalid memory extraction history multiplier", () => {
+  assert.throws(
+    () =>
+      createConfig({
+        OPENAI_API_KEY: "openai-key",
+        SAGE_API_KEY: "sage-key",
+        BRAVE_API_KEY: "brave-key",
+        SAGE_MEM_EXT_HISTORY_MULTIPLIER: "0",
+      }),
+    /SAGE_MEM_EXT_HISTORY_MULTIPLIER/
   );
 });

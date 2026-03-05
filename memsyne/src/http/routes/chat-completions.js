@@ -100,9 +100,10 @@ async function registerChatCompletionRoutes(app) {
         reply.raw.write("data: [DONE]\n\n");
         reply.raw.end();
         scheduleMemoryExtractionAfterStreaming({
+          conversationStore: app.sageServices.conversationStore,
           memoryService: app.sageServices.memoryService,
+          conversationId: requestBody.conversationId,
           model: requestBody.model,
-          userMessage: requestBody.lastUserMessage,
           assistantMessage,
           logger: request.log,
         });
@@ -136,20 +137,32 @@ async function registerChatCompletionRoutes(app) {
 }
 
 function scheduleMemoryExtractionAfterStreaming({
+  conversationStore,
   memoryService,
+  conversationId,
   model,
-  userMessage,
   assistantMessage,
   logger,
 }) {
-  if (!userMessage || !assistantMessage) {
+  if (conversationStore && conversationId && typeof assistantMessage === "string") {
+    try {
+      conversationStore.appendAssistantMessage({
+        conversationId,
+        content: assistantMessage,
+      });
+    } catch (error) {
+      logger.warn({ err: error, conversationId }, "Failed to append streamed assistant message to conversation store");
+    }
+  }
+
+  if (!conversationId || !assistantMessage) {
     logger.debug(
       {
         model,
-        userMessageLength: typeof userMessage === "string" ? userMessage.length : 0,
+        conversationId,
         assistantMessageLength: typeof assistantMessage === "string" ? assistantMessage.length : 0,
       },
-      "Skipping post-stream memory extraction due to missing conversation text"
+      "Skipping post-stream memory extraction due to missing conversation context"
     );
     return;
   }
@@ -161,7 +174,7 @@ function scheduleMemoryExtractionAfterStreaming({
   logger.debug(
     {
       model,
-      userMessageLength: userMessage.length,
+      conversationId,
       assistantMessageLength: assistantMessage.length,
     },
     "Scheduling post-stream memory extraction"
@@ -169,7 +182,7 @@ function scheduleMemoryExtractionAfterStreaming({
 
   void memoryService
     .extractAndStoreMemories({
-      userMessage,
+      conversationId,
       assistantMessage,
       model,
       logger,

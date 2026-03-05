@@ -56,6 +56,7 @@ OpenAI-compatible chat completions endpoint with Sage memory augmentation.
 
 ### Required request fields
 - `model` (string)
+- `conversation_id` (string) or `conversationId` (string alias)
 - `messages` (non-empty array)
 
 ### Supported optional request fields
@@ -70,6 +71,8 @@ The following pass through to upstream OpenAI chat completions:
 - `frequency_penalty`
 - `user`
 - `stream_options` (only passed when `stream: true`)
+
+`conversation_id`/`conversationId` is used by Sage for server-side conversation tracking and is **not** forwarded upstream.
 
 ### Tool-related fields
 - `tools`: array of function tool definitions
@@ -141,6 +144,7 @@ curl -sS http://localhost:8787/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-5.2",
+    "conversation_id": "conv-demo-1",
     "messages": [
       {"role": "user", "content": "Summarize memory-augmented chat flow."}
     ]
@@ -157,6 +161,7 @@ const response = await fetch("http://localhost:8787/v1/chat/completions", {
   },
   body: JSON.stringify({
     model: "gpt-5.2",
+    conversation_id: "conv-demo-1",
     messages: [{ role: "user", content: "Summarize memory-augmented chat flow." }],
   }),
 });
@@ -172,6 +177,7 @@ curl -N http://localhost:8787/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-5.2",
+    "conversation_id": "conv-demo-1",
     "stream": true,
     "messages": [
       {"role": "user", "content": "Stream a short response."}
@@ -189,6 +195,7 @@ const response = await fetch("http://localhost:8787/v1/chat/completions", {
   },
   body: JSON.stringify({
     model: "gpt-5.2",
+    conversation_id: "conv-demo-1",
     stream: true,
     messages: [{ role: "user", content: "Stream a short response." }],
   }),
@@ -211,6 +218,7 @@ curl -sS http://localhost:8787/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-5.2",
+    "conversation_id": "conv-demo-1",
     "messages": [
       {"role": "user", "content": "What memories do you have about coffee preferences?"}
     ],
@@ -288,6 +296,7 @@ const response = await fetch("http://localhost:8787/v1/chat/completions", {
   },
   body: JSON.stringify({
     model: "gpt-5.2",
+    conversation_id: "conv-demo-1",
     messages: [{ role: "user", content: "Use get_memories for coffee preferences." }],
     tools: [
       {
