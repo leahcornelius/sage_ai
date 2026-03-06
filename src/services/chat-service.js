@@ -40,7 +40,7 @@ function createChatService({
       logger: operationLogger,
     });
 
-    const userTurnIndex = deriveLastUaTurnIndex(requestBody.messages);
+    const userTurnIndex = deriveLastUserAssistantTurnIndex(requestBody.messages);
     const assistantTurnIndex = userTurnIndex + 1;
     void memoryService.processMessage({
       conversationId: requestBody.conversationId,
@@ -162,7 +162,7 @@ function createChatService({
       logger: operationLogger,
     });
 
-    const userTurnIndex = deriveLastUaTurnIndex(requestBody.messages);
+    const userTurnIndex = deriveLastUserAssistantTurnIndex(requestBody.messages);
     const assistantTurnIndex = userTurnIndex + 1;
     void memoryService.processMessage({
       conversationId: requestBody.conversationId,
@@ -996,7 +996,12 @@ function scheduleConversationMemoryIngestion({
     });
 }
 
-function deriveLastUaTurnIndex(messages) {
+/**
+ * Derives a zero-based user/assistant turn index from the normalized request
+ * history. Tool messages are excluded because memory ingestion tracks only
+ * user/assistant turns.
+ */
+function deriveLastUserAssistantTurnIndex(messages) {
   if (!Array.isArray(messages) || messages.length === 0) {
     return 0;
   }
