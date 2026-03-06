@@ -5,25 +5,29 @@ import pino from "pino";
  * Fastify so request logs and service logs share the same output format.
  */
 function createLogger(config) {
-  const targets = [
-    config.logging.pretty
-      ? {
-          target: "pino-pretty",
-          level: config.logging.consoleLevel,
-          options: {
-            colorize: true,
-            translateTime: "SYS:standard",
-            ignore: "pid,hostname",
-          },
-        }
-      : {
-          target: "pino/file",
-          level: config.logging.consoleLevel,
-          options: {
-            destination: 1,
-          },
-        },
-  ];
+  const targets = [];
+
+  if (config.logging.consoleLevel !== "silent") {
+    targets.push(
+      config.logging.pretty
+        ? {
+            target: "pino-pretty",
+            level: config.logging.consoleLevel,
+            options: {
+              colorize: true,
+              translateTime: "SYS:standard",
+              ignore: "pid,hostname",
+            },
+          }
+        : {
+            target: "pino/file",
+            level: config.logging.consoleLevel,
+            options: {
+              destination: 1,
+            },
+          }
+    );
+  }
 
   if (config.logging.fileEnabled) {
     targets.push({
@@ -33,6 +37,7 @@ function createLogger(config) {
         destination: config.logging.filePath,
         mkdir: true,
         append: true,
+        sync: true,
       },
     });
   }
