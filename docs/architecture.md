@@ -64,7 +64,6 @@ Sage startup path in `src/index.js`:
 6. If tools are active, execute bounded tool loop; otherwise direct upstream completion.
 7. Return OpenAI-compatible completion JSON.
 8. Append assistant reply to conversation store.
-9. Schedule best-effort background memory extraction/store every configured batch cadence.
 9. Schedule best-effort async memory ingestion for final assistant text.
 
 ## B) Stream chat completion
@@ -93,6 +92,7 @@ Sage startup path in `src/index.js`:
 ## Memory Lifecycle
 1. **Write phase (`processMessage`)**
    - User and final assistant turns are ingested asynchronously.
+   - Turn indexing counts only `user` and `assistant` roles (tool messages are excluded).
    - `messageId = sha256(conversationId|role|turnIndex|normalizedText).hex()` enforces idempotency.
    - mem0 is write-path only and never used for retrieval.
    - Facts are persisted to Mnemosyne, propagated to Zep, and Redis scope cache is invalidated.

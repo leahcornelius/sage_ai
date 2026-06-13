@@ -6,6 +6,21 @@ import test from "node:test";
 
 import { createLogger } from "../src/logging/logger.js";
 
+async function readFileWithRetry(filePath, attempts = 20, delayMs = 25) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await fs.readFile(filePath, "utf8");
+    } catch (error) {
+      if (error?.code !== "ENOENT" || attempt === attempts - 1) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw new Error(`Unable to read ${filePath}`);
+}
+
 test("createLogger writes debug logs to file when console level is silent", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "sage-logger-test-"));
   const logFilePath = path.join(tempDir, "sage.log");
@@ -24,9 +39,8 @@ test("createLogger writes debug logs to file when console level is silent", asyn
   logger.debug({ openaiApiKey: "super-secret" }, "debug message");
 
   await new Promise((resolve) => logger.flush(resolve));
-  await new Promise((resolve) => setTimeout(resolve, 50));
 
-  const fileContents = await fs.readFile(logFilePath, "utf8");
+  const fileContents = await readFileWithRetry(logFilePath);
   assert.match(fileContents, /info message/);
   assert.match(fileContents, /debug message/);
   assert.doesNotMatch(fileContents, /top-secret/);

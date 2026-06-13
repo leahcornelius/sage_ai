@@ -18,6 +18,23 @@ Sage now runs as an OpenAI-compatible API server that layers Sage's long-term me
 - Internals: [`docs/internals.md`](./docs/internals.md)
 - Limitations and known issues: [`docs/limitations-and-known-issues.md`](./docs/limitations-and-known-issues.md)
 
+## Codebase orientation for contributors
+
+For faster onboarding when making changes:
+
+- HTTP boundary and route wiring: `src/app.js`, `src/http/routes/*`, `src/http/validation/*`
+- Core request orchestration: `src/services/chat-service.js`
+- Memory pipeline: `src/services/memory-service.js` + `src/services/memory/*`
+- Tool runtime: `src/tools/tool-registry.js`, `src/tools/tool-executor.js`, `src/tools/builtin/*`, `src/tools/mcp/*`
+- Shared serialization and error mapping: `src/http/serializers/*`, `src/errors/*`
+- Runtime configuration: `src/config/env.js`
+
+Recommended review order for debugging chat behavior:
+1. Route validation (`src/http/validation/chat-completions.js`)
+2. Chat orchestration (`src/services/chat-service.js`)
+3. Upstream serialization (`src/http/serializers/openai-chat.js`)
+4. Memory/tool side effects (`src/services/memory-service.js`, `src/tools/*`)
+
 ## Requirements
 
 - Node.js 24+
