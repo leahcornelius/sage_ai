@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
+    "chat": "node cli/sage-chat.mjs",
     "test": "node --test",
     "migrate:importance": "node scripts/migrate-importance-scale.js",
     "verify:memory-deps": "node scripts/verify-memory-deps.js"
