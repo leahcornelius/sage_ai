@@ -1,546 +1,428 @@
-# Sage — Technical Analysis
+# SAGE V2 — Overnight Self-Improving Retrieval Loop Spec (V0.1)
 
-Read-only analysis of the `Sage` repository, written for an engineer who needs to build a
-self-improvement loop that tunes Sage's **memory behaviour**. Everything below is derived from the
-source in this repo; file/line citations are given so each claim can be checked. Where the code
-diverges from the docs, that is called out explicitly.
+**Run this in Claude Code, in plan mode, from the `sage_ai` repo folder.** Plan first, show me the
+plan, and only build + launch after I approve. A working Sage is already running locally from an
+earlier smoke test (see `SETUP_STATUS.md`, on port 8787, pointed at the **real** collection
+`sage_mem_v2`). A read-only architecture report is in `SAGE_ANALYSIS.md`. **Read both before planning
+and treat them as ground truth.**
 
-## 0. What Sage is (one paragraph)
-
-Sage is an **OpenAI-compatible HTTP facade** (Fastify, Node 24, ESM) that sits in front of an
-upstream OpenAI-compatible chat API. It exposes `GET /health`, `GET /v1/models`, and
-`POST /v1/chat/completions` (`README.md:5-11`). On every chat request it (a) augments the upstream
-prompt with long-term memory context retrieved from a layered memory subsystem, (b) optionally runs
-a bounded server-side tool loop, and (c) asynchronously ingests the user and assistant turns back
-into memory. The HTTP layer is stateless — clients must resend full `messages` and supply a chat-id
-header each request (`README.md:84-89`). The memory subsystem is a controller fanning out to four
-backends: **Mnemosyne** (episodic + semantic store, primary read+write), **mem0** (write-path fact
-extraction only), **Zep** (graph facts, read+write), and **Redis** (identity/query caches).
-Entry point is `src/index.js`; orchestration is `src/services/chat-service.js`; the memory pipeline
-is `src/services/memory-service.js` + `src/services/memory/*`.
+> **Do not reuse the already-running Sage instance for the benchmark.** It points at real user memory.
+> The benchmark runs a **separate, freshly-launched Sage process on a different port, pointed at a
+> throwaway collection** (see §2 and Gate 0). This is a hard safety boundary.
 
 ---
 
-## 1. Memory pipeline, end to end
+## 0. Goal (and what success means)
 
-Two public operations on the controller drive everything:
-`processMessage` (WRITE) and `retrieveContext` (READ), both in
-`src/services/memory/memory-controller.js`. The facade `src/services/memory-service.js` wraps them
-and resolves the scope key.
+Build a closed self-improvement loop that automatically tunes Sage's **read-side memory
+configuration** to improve retrieval quality on a synthetic benchmark — keeping changes that help,
+reverting ones that don't — then **launch it as a detached process so it runs unattended overnight**
+and writes a morning report.
 
-### 1.1 Scope / identity resolution (shared by both paths)
-
-`resolveScopeKey({ conversationId, user })` returns `user.trim()` if the request supplied a
-non-empty `user` field, otherwise falls back to `conversationId` (the chat-id header)
-(`memory-controller.js:501-506`, called via `memory-service.js:53,74`). **This is the only tenancy
-boundary in the whole memory system.** All caches, Mnemosyne scope tags, Zep `userId`, and mem0
-`user_id` key off this single string. If clients don't send `user`, every conversation gets its own
-scope; if they do, scope is the user id.
-
-### 1.2 WRITE path — `processMessage` (`memory-controller.js:261-439`)
-
-Triggered three times per chat turn from `chat-service.js`:
-- user turn, fire-and-forget, at request start (`chat-service.js:45-54`, `167-176`);
-- assistant turn, fire-and-forget, after the response completes
-  (`scheduleConversationMemoryIngestion`, `chat-service.js:951-997`, invoked at `141-151` non-stream
-  and `299-308` streaming);
-- on demand from the `add_memory` tool (`memory-service.js:167-217`, role `"user"`).
-
-Guard: returns `{skipped:true}` immediately if `scopeKey`/`conversationId`/`messageText` missing or
-`memoryMode === "off"` (`memory-controller.js:272-274`).
-
-Writes are **serialized per conversation** via `enqueueByConversation` (a promise chain keyed by
-`conversationId`, `memory-controller.js:614-626`) and **globally throttled** by an
-`AsyncSemaphore(writeConcurrencyLimit)` (`memory-controller.js:17,279,436`).
-
-Steps inside the queued task:
-1. **Idempotency id**: `messageId = sha256(conversationId|role|turnIndex|normalizedText)`
-   (`createMessageId`, `memory-controller.js:658-666`; whitespace-collapsed text). `turnIndex`
-   counts only user/assistant turns (tool messages excluded), derived in
-   `deriveLastUserAssistantTurnIndex` (`chat-service.js:1004-1017`) for user turns and from
-   `conversationStore.getUaMessageCount` for assistant/tool writes
-   (`memory-service.js:122,188,240-249`).
-2. **Dedup**: `mnemosyneAdapter.hasMessageId(messageId)`. Checks an in-process `Set` first, then a
-   Mnemosyne `recall({query:"message_id:<id>", topK:1})` substring match
-   (`mnemosyne-adapter.js:18-37`). If found → `{skipped:true, reason:"duplicate_message_id"}`
-   (`memory-controller.js:288-304`).
-3. **Episodic store (Mnemosyne)**: `storeEpisodic` writes the raw message with bracketed metadata
-   tags (`[scope:][conversation:][role:][turn:][message_id:][timestamp:]`) under category
-   `"episodic"`, and also pushes it into an in-process per-scope ring buffer of the last 20 entries
-   (`recentEpisodicByScope`, `mnemosyne-adapter.js:39-77,9-16`).
-4. **Fact extraction (mem0)**: `mem0Adapter.extractFacts` calls `mem0` `client.add([{role,content}],
-   {user_id: scopeKey, metadata})`; mem0 returns memory objects which are normalized into facts with
-   inferred `predicate` (keyword match: prefers/likes/works → PREFERS/LIKES/WORKS_AT else KNOWS),
-   `factKey = sha256(scope|predicate|object)`, `confidence` from mem0 `score`, etc.
-   (`mem0-adapter.js:19-58,75-128`). **mem0 is the only fact extractor.** If mem0 is disabled or
-   has no API key, `facts = []` and no semantic/graph facts are ever produced
-   (`mem0-adapter.js:7-17,27-29`).
-5. **Fan-out (only if `facts.length > 0`)**, via `Promise.allSettled` (`memory-controller.js:349-387`):
-   - `mnemosyneAdapter.upsertSemanticFacts`: per fact, conflict-resolves against an **in-process**
-     `canonicalFacts` Map keyed by `scope|subject|predicate` (newer eventTime > newer ingestedAt >
-     higher confidence wins; loser tagged `status:"conflict"`), then stores to Mnemosyne with
-     category (default `"semantic"`) and `importance = confidence` (`mnemosyne-adapter.js:79-115,206-259`).
-   - `zepAdapter.upsertFacts`: `client.graph.addFactTriple(...)` per fact (`zep-adapter.js:15-46`).
-   - Redis identity refresh: re-reads `mnemosyneAdapter.getIdentityContext` and writes it to the
-     Redis identity cache (`memory-controller.js:371-385`).
-6. **Cache invalidation**: `redisCache.invalidateScope(scopeKey)` always runs (deletes identity key,
-   query index, and all indexed query keys) (`memory-controller.js:389-399`, `redis-cache.js:120-143`).
-
-Failures are caught and logged at warn; the write never throws to the caller
-(`memory-controller.js:419-434`). All adapter calls run through `runAdapter` with per-adapter
-timeouts, circuit breakers, and enable checks (see §1.4).
-
-> **Critical caveat for memory tuning:** identity context and semantic-fact conflict state live in
-> **in-process Maps/Sets** on the Mnemosyne adapter (`seenMessageIds`, `canonicalFacts`,
-> `recentEpisodicByScope`, `mnemosyne-adapter.js:4-6`). `getIdentityContext` (§1.3) only ever returns
-> facts from this in-process `canonicalFacts` Map — it does **not** query Mnemosyne for identity. So
-> identity memory is effectively empty after a restart and is never populated from durable storage;
-> episodic summaries likewise come from the in-process ring buffer, not from Mnemosyne queries
-> (`mnemosyne-adapter.js:138-180`).
-
-### 1.3 READ path — `retrieveContext` (`memory-controller.js:28-259`)
-
-Called synchronously (awaited) once per chat request before building the upstream payload
-(`chat-service.js:56-63`, `178-185`). Query = `requestBody.lastUserMessage`.
-
-1. **Off short-circuit**: `memoryMode === "off"` → `emptyContext` (`memory-controller.js:37-43`).
-2. **Deadline**: `deadline = now + retrievalWindowMs`, where
-   `retrievalWindowMs = max(retrievalBudgetMs, retrievalTimeoutMs)` (`memory-controller.js:24-26`,
-   `env.js:44-47`). Default = `max(180, 200) = 200 ms`.
-3. **Query normalization for cache**: lowercase, trim, slice to 256 chars (`normalizeQueryForCache`,
-   `memory-controller.js:494-499`).
-4. **Identity lookup**: Redis `getIdentityContext(scopeKey)`; on miss/empty, Mnemosyne
-   `getIdentityContext` (in-process only, see caveat), and if non-empty, async-write back to Redis
-   (`memory-controller.js:48-89`).
-5. **Cold-start probe**: `mnemosyneAdapter.hasScopeMemories` (`recall({query:scopeKey,topK:1})`). If
-   no identity **and** no scope memories → return `emptyContext({coldStart:true})` **without**
-   running graph/semantic/episodic queries (`memory-controller.js:91-116`, `mnemosyne-adapter.js:160-169`).
-6. **Query cache**: Redis `getQueryContext(scopeKey, normalizedQuery)`. On hit, rebuild the context
-   block from cached buckets and return with `cacheHit:true` (`memory-controller.js:118-156`).
-7. **Parallel retrieval (cache miss)** via `Promise.all` of three `runAdapter` calls
-   (`memory-controller.js:158-203`):
-   - **graph** → `zepAdapter.search({scopeKey, query, limit: graphMaxResults})`
-     (`zep-adapter.js:48-77`; falls back to `graph.edge.getByUserId` + local term-overlap scoring on
-     a Zep 404, `zep-adapter.js:60-76,118-148`);
-   - **semantic** → `mnemosyneAdapter.searchSemantic({scopeKey, query, topK: semanticTopK})`
-     (`mnemosyne-adapter.js:117-136`; strips bracket metadata via `cleanStoredText`);
-   - **episodic** → `mnemosyneAdapter.getEpisodicSummaries({scopeKey, maxItems: episodicTopK})`
-     (in-process ring buffer, last N reversed, `mnemosyne-adapter.js:171-180`).
-
-   Note: Zep `search` ignores `scopeKey` for filtering at the controller level — it passes
-   `userId: scopeKey` to Zep. Semantic search passes `scopeKey` to the adapter but the adapter does
-   **not** use it to filter the Mnemosyne `recall` (only `query`/`topK`), so semantic recall is not
-   actually scoped (`mnemosyne-adapter.js:117-124`).
-8. **Merge + token-budget assembly** (see §1.5).
-9. **Async cache write**: if a non-empty context block was produced, write merged buckets to the
-   Redis query cache (`setQueryContext`, TTL `queryCacheTtlSec`) (`memory-controller.js:220-232`).
-10. Return `{contextBlock, partial, cacheHit, coldStart, budgetExceeded, identityMemories,
-    graphMemories, semanticMemories, episodicSummaries}`. `partial` is true if any of the three
-    parallel adapters failed or the deadline was passed (`memory-controller.js:217-218`).
-
-### 1.4 `runAdapter` — the per-call safety wrapper (`memory-controller.js:508-591`)
-
-Every backend call goes through this. It: skips if the adapter is disabled (`isAdapterEnabled`,
-`memory-controller.js:593-612`) or its circuit breaker is open; computes
-`effectiveTimeout = min(timeoutMs, deadline - now)` and bails with `budget_exhausted` if ≤0; races
-the operation against `withTimeout` (`memory-controller.js:640-656`); records circuit-breaker
-success/failure (unless `skipCircuitBreaker`); and returns `{ok, value|error, timeout, durationMs}`.
-Circuit breakers come from `CircuitBreakerRegistry` (`src/services/memory/circuit-breaker.js`),
-configured by the `circuitBreaker.*` knobs.
-
-### 1.5 Context merge / trim / formatting (`src/services/memory/context-merge.js`)
-
-- `mergeMemoryBuckets` just coerces the four arrays into `{identity, graph, semantic, episodic}`
-  (`context-merge.js:3-15`). **No cross-bucket ranking or dedup** — order within each bucket is
-  whatever the backend returned. Zep returns score-sorted edges; Mnemosyne returns recall order.
-- `buildMemoryContextBlock` (`context-merge.js:17-48`): renders all buckets to text via
-  `formatBucketsAsContext`, then **trims to fit `maxTokens`** by popping items in the order
-  `["episodic", "semantic", "graph"]` — i.e. episodic is dropped first, **identity is never
-  trimmed** (`context-merge.js:30-41`). If even the identity-only block still exceeds budget, it
-  returns the sentinel `"Memory context:\nIdentity memory is available but exceeds token budget."`
-  (`context-merge.js:43-46`).
-- Token counting: `js-tiktoken` `encodingForModel(modelId)`, fallback `cl100k_base`, final fallback
-  whitespace word count (`context-merge.js:91-104`). The model id is the request's resolved model.
-- Output text format (`formatBucketsAsContext`, `context-merge.js:50-89`):
-  ```
-  Memory context:
-  Identity memories:
-  - <text>
-  Graph facts:
-  - <text>
-  Semantic memories:
-  - <text>
-  Episodic summaries:
-  - <text>
-  ```
-  Empty buckets render as `<Bucket>: (none)`.
-
-### 1.6 Injection into the final prompt (`chat-service.js:866-905`)
-
-`buildUpstreamRequest` prepends **three system messages** before the client messages, in this order:
-1. active system prompt (from `prompt-service`, loaded from `system_prompt.yaml`);
-2. `Current Date: <ISO now>`;
-3. the memory context block (or the "No relevant long-term memories…" sentinel if empty).
-
-Then `...requestBody.messages` (client history) and `...requestBody.upstreamOptions` (passthrough
-params). The chat-id header is **not** forwarded upstream. The memory block is always present as a
-system message even when empty.
-
-### 1.7 SQLite conversation store (`src/services/conversation-store.js`)
-
-`better-sqlite3`, WAL mode, at `config.memory.conversationDbPath`. On each request
-`replaceConversationMessagesFromClient` wipes and re-inserts the client message history and assigns
-`ua_index` to user/assistant messages (`conversation-store.js:204-242`); `appendAssistantMessage`
-adds the assistant reply (`244-269`). It backs `getUaMessageCount` (used for assistant/tool
-`turnIndex`).
-
-> **Dead code relevant to memory tuning:** the store also defines `conversations.summary_*`,
-> `memory_generations`, and `memory_extraction_runs` tables plus methods
-> (`createExtractionRun`, `addMemoryGeneration`, `listActiveMemoryGenerationsBySourceRange`,
-> `updateConversationSummary`, `getUaMessagesInRange`, `deactivateActiveGenerationsByMemoryId`).
-> A repo-wide grep shows **none of these are called outside `conversation-store.js` itself**. The
-> batched-extraction-with-rolling-summary pipeline described in `docs/internals.md` "Deep Dive 6"
-> and the env vars `SAGE_MEMORY_EXTRACT_EVERY`, `SAGE_MEM_EXT_HISTORY_MULTIPLIER`,
-> `SAGE_MEMORY_EXTRACTION_MODEL`, `SAGE_MEMORY_SUMMARY_MODEL` are **not wired into the running code**
-> — those config values are only parsed (`env.js:194-213`) and logged at startup
-> (`index.js:34-35`). Actual extraction is single-message via mem0 (§1.2 step 4). This is the single
-> biggest doc-vs-code divergence and a likely point of confusion when tuning extraction.
+This is **V0.1**. Success means **the loop closes and runs itself, safely and unattended, against
+Sage's real config surface** — generate benchmark → populate memory (no model calls) → mutate config →
+score retrieval → keep/revert → archive → detach → run for hours → report. Success is **NOT** a large
+accuracy gain; the action space is deliberately small (§1). **Prove the machinery cleanly. Do not
+build the perfect optimiser in one pass, and do not expand V0.1 scope.**
 
 ---
 
-## 2. Memory config surface
+## 1. Scope and non-goals
 
-All config is parsed in `src/config/env.js` (`createConfig`). The memory block is `config.memory`
-(`env.js:91-234`). Defaults are the second arg to the parse helpers. "Used at" = where the value is
-actually read at runtime (parsed-but-unused values are flagged).
+**In scope (the mutable surface for this run):** Sage's read-side memory knobs only —
+`semanticTopK`, `episodicTopK`, `contextMaxTokens` (the dominant levers), `graphMaxResults` for
+completeness (Zep is off, so it's inert). The retrieval time budget is set **generous and fixed** —
+not optimised — to avoid truncation (§10).
 
-### 2.1 Mode and backend enable flags
-| Config (`config.memory.*`) | Env var | Default | What it does | Read at |
-|---|---|---|---|---|
-| `mode` | `SAGE_MEMORY_MODE` | `hard` | `hard`\|`soft`\|`off`. `off` disables all memory ops; `hard` makes startup fail if enabled backends are unhealthy (`assertReady`); `soft` logs health but tolerates failures. | `env.js:48-52`; `memory-controller.js:37,272,460-486` |
-| `mem0Enabled` | `SAGE_MEM0_ENABLED` | `true` | Enables mem0 adapter (write-path fact extraction). | `env.js:93`; `mem0-adapter.js:7` |
-| `zepEnabled` | `SAGE_ZEP_ENABLED` | `true` | Enables Zep adapter (graph read+write). | `env.js:94`; `zep-adapter.js:5` |
-| `redisEnabled` | `SAGE_REDIS_ENABLED` | `true` | Enables Redis cache (identity/query caches). | `env.js:95`; `redis-cache.js:7` |
-
-### 2.2 Retrieval depth / buckets
-| Config | Env var | Default | What it does | Read at |
-|---|---|---|---|---|
-| `topK` | `SAGE_MEMORY_TOP_K` | `5` | Default cap for the `get_memories` tool result list (and tool fallback). **Not used by the chat retrieval path.** | `env.js:96`; `memory-service.js:157` |
-| `semanticTopK` | `SAGE_MEMORY_SEMANTIC_TOP_K` | `5` | `topK` passed to Mnemosyne semantic search. | `env.js:97-101`; `memory-controller.js:185` |
-| `episodicTopK` | `SAGE_MEMORY_EPISODIC_TOP_K` | `3` | `maxItems` for episodic ring-buffer summaries. | `env.js:102-106`; `memory-controller.js:199` |
-| `graphMaxResults` | `SAGE_MEMORY_GRAPH_MAX_RESULTS` | `20` | `limit` for Zep graph search. | `env.js:107-111`; `memory-controller.js:170` |
-
-### 2.3 Token budget / trim
-| Config | Env var | Default | What it does | Read at |
-|---|---|---|---|---|
-| `contextMaxTokens` | `SAGE_MEMORY_CONTEXT_MAX_TOKENS` | `1200` | Max tokens for the assembled memory block; trim order episodic→semantic→graph (identity never trimmed). Tokenizer matched to request model. | `env.js:112-116`; `memory-controller.js:132,213`; `context-merge.js:33-46` |
-
-### 2.4 Time budgets / deadlines
-| Config | Env var | Default | What it does | Read at |
-|---|---|---|---|---|
-| `retrievalTimeoutMs` | `SAGE_MEMORY_RETRIEVAL_TIMEOUT_MS` | `200` | Component of the retrieval window (see below). | `env.js:34-38` |
-| `retrievalBudgetMs` | `SAGE_MEMORY_RETRIEVAL_BUDGET_MS` | `180` | Component of the retrieval window. | `env.js:39-43` |
-| `retrievalWindowMs` | (derived) | `max(timeout,budget)` = `200` | The real deadline for the whole `retrieveContext` fan-out; per-call timeouts are clamped to remaining window. | `env.js:44-47`; `memory-controller.js:24-26,46` |
-| `timeouts.mem0Ms` | `SAGE_MEMORY_TIMEOUT_MEM0_MS` | `250` | Per-call timeout for mem0 (write path only). | `env.js:142-146`; `memory-controller.js:329` |
-| `timeouts.zepMs` | `SAGE_MEMORY_TIMEOUT_ZEP_MS` | `120` | Per-call timeout for Zep. | `env.js:147-151`; `memory-controller.js:169,366` |
-| `timeouts.mnemosyneMs` | `SAGE_MEMORY_TIMEOUT_MNEMOSYNE_MS` | `120` | Per-call timeout for Mnemosyne ops. | `env.js:152-156`; multiple in controller |
-| `timeouts.redisMs` | `SAGE_MEMORY_TIMEOUT_REDIS_MS` | `30` | Per-call timeout for Redis ops. | `env.js:157-161`; multiple in controller |
-
-> Note on budgeting: with defaults, the window is 200 ms but the Mnemosyne identity lookup, scope
-> probe, and query-cache lookup happen **sequentially before** the parallel fan-out, each up to 120/30
-> ms, so the window can be largely consumed before graph/semantic/episodic even start — increasing
-> `partial`/timeout likelihood. Tuning the window upward is often necessary for non-trivial recall.
-
-### 2.5 Circuit breaker
-| Config | Env var | Default | What it does | Read at |
-|---|---|---|---|---|
-| `circuitBreaker.failureThreshold` | `SAGE_MEMORY_CB_FAILURE_THRESHOLD` | `5` | Failures within window before a backend is skipped. | `env.js:163-168`; `memory-controller.js:18-22` |
-| `circuitBreaker.windowMs` | `SAGE_MEMORY_CB_WINDOW_MS` | `60000` | Rolling failure window. | `env.js:169-173` |
-| `circuitBreaker.cooldownMs` | `SAGE_MEMORY_CB_COOLDOWN_MS` | `30000` | How long the breaker stays open. | `env.js:174-178` |
-
-### 2.6 Caches
-| Config | Env var | Default | What it does | Read at |
-|---|---|---|---|---|
-| `identityCacheTtlSec` | `SAGE_MEMORY_IDENTITY_CACHE_TTL_SEC` | `300` | TTL for Redis identity cache. | `env.js:120-124`; `redis-cache.js:93` |
-| `queryCacheTtlSec` | `SAGE_MEMORY_QUERY_CACHE_TTL_SEC` | `120` | TTL for Redis query-context cache + index. | `env.js:125-129`; `redis-cache.js:102,111,117` |
-| `redisUrl` | `SAGE_REDIS_URL` \|\| `MNEMOSYNE_CACHE_URL` | `redis://localhost:6379` | Redis connection for the cache layer. | `env.js:180-183`; `redis-cache.js:8,14` |
-
-### 2.7 Embedding / Mnemosyne backend
-| Config | Env var | Default | What it does | Read at |
-|---|---|---|---|---|
-| `embeddingProvider` | `SAGE_MEMORY_EMBEDDING_PROVIDER` | `mnemosyne` | Stored on config; **only logged**, not used to select a provider in code. | `env.js:130-131` |
-| `embeddingModel` | `SAGE_MEMORY_EMBEDDING_MODEL` \|\| `MNEMOSYNE_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model passed to the Mnemosyne client. | `env.js:132-135`; `mnemosyne-client.js:32` |
-| `mnemosyne.vectorDbUrl` | `MNEMOSYNE_VECTOR_DB_URL` | `http://localhost:6333` | Qdrant vector DB. | `env.js:218-220`; `mnemosyne-client.js:27` |
-| `mnemosyne.embeddingUrl` | `MNEMOSYNE_EMBEDDING_URL` | `http://localhost:11434/v1/embeddings` | Embedding endpoint (Ollama-style). | `env.js:221-223`; `mnemosyne-client.js:28` |
-| `mnemosyne.graphDbUrl` | `MNEMOSYNE_GRAPH_DB_URL` | `redis://localhost:6380` | Mnemosyne graph backend. | `env.js:224-225`; `mnemosyne-client.js:29` |
-| `mnemosyne.cacheUrl` | `MNEMOSYNE_CACHE_URL` | `redis://localhost:6379` | Mnemosyne internal cache. | `env.js:226-227`; `mnemosyne-client.js:30` |
-| `mnemosyne.agentId` | `MNEMOSYNE_AGENT_ID` | `sage-api` | Mnemosyne agent identity. | `env.js:228`; `mnemosyne-client.js:31` |
-| `mnemosyne.collectionName` | `MNEMOSYNE_COLLECTION_NAME` | `sage_mem_v2` | Mnemosyne/Qdrant collection. **(`docs/internals.md:225` wrongly lists `testing_container`.)** | `env.js:231-232`; `mnemosyne-client.js:33` |
-
-### 2.8 Write concurrency
-| Config | Env var | Default | What it does | Read at |
-|---|---|---|---|---|
-| `writeConcurrencyLimit` | `SAGE_MEMORY_WRITE_CONCURRENCY_LIMIT` | `8` | Global semaphore size for concurrent memory writes. | `env.js:136-140`; `memory-controller.js:17` |
-
-### 2.9 mem0 / Zep credentials
-| Config | Env var | Default | Read at |
-|---|---|---|---|
-| `mem0.apiKey` | `MEM0_API_KEY` | none | `env.js:185`; `mem0-adapter.js:10-16`. **No key ⇒ mem0 client is null ⇒ zero fact extraction.** |
-| `mem0.baseUrl` | `MEM0_BASE_URL` | `https://api.mem0.ai` | `env.js:186` |
-| `mem0.organizationId` / `projectId` | `MEM0_ORG_ID` / `MEM0_PROJECT_ID` | none | `env.js:187-188` |
-| `zep.apiKey` | `ZEP_API_KEY` | none | `env.js:191`; `zep-adapter.js:8-13`. No key ⇒ Zep client null ⇒ graph read/write are no-ops. |
-| `zep.baseUrl` | `ZEP_BASE_URL` | none | `env.js:192` |
-
-### 2.10 Parsed-but-unused memory config (landmines)
-These are read into config and logged but **not consumed** by the running memory pipeline (confirmed
-by grep; see §1.7):
-`extractionModel` (`SAGE_MEMORY_EXTRACTION_MODEL`), `extractionAllowModelOverride`,
-`summaryModel` (`SAGE_MEMORY_SUMMARY_MODEL`), `summaryAllowModelOverride`,
-`extractEvery` (`SAGE_MEMORY_EXTRACT_EVERY`), `extractionHistoryMultiplier`
-(`SAGE_MEM_EXT_HISTORY_MULTIPLIER`) — all `env.js:194-213`.
-
-### 2.11 Tool-side memory knobs (`config.tools.*`)
-| Config | Env var | Default | What it does | Read at |
-|---|---|---|---|---|
-| `memoryWriteEnabled` | `SAGE_MEMORY_TOOL_WRITE_ENABLED` | `true` | Gate on `add_memory` tool. | `env.js:265`; `add-memory.js:38-45` |
-| `memoryWriteWhitelist` | `SAGE_MEMORY_TOOL_WRITE_WHITELIST` | `["add_memory"]` | Tool names allowed to write memory. | `env.js:266-267`; `add-memory.js:46-56`, `memory-service.js:178-186` |
+**Explicitly out of scope (do not do these):**
+- No changes to Sage's retrieval *code* (no new cross-bucket ranking, scope-filtering, query
+  rewriting, dedup). Those are the night-two action space — list them in the report as future levers,
+  do not implement them.
+- No model retraining / fine-tuning of any kind.
+- No re-enabling of mem0/Zep for the benchmark.
+- No edits to `.env.local` or any secret; no new external accounts or paid services.
 
 ---
 
-## 3. Config mutability
+## 2. Hard constraints
 
-**Read once at startup; no hot reload.** `createConfig()` is called exactly once in `main()`
-(`index.js:24`) and reads `process.env` after loading `.env.local` once at module import
-(`env.js:6-10`). The resulting object is passed by reference into every service/adapter constructor
-(`index.js:64-109`) and the adapters cache derived state at construction time — most importantly the
-`enabled` flags (`mem0-adapter.js:7`, `zep-adapter.js:5`, `mnemosyne-adapter.js:3`, `redis-cache.js:7`),
-the mem0/Zep/Redis clients, and the semaphore/circuit-breaker registry in the controller
-(`memory-controller.js:17-22`). Nothing watches the file or re-reads `process.env`.
-
-Consequences for a tuning loop:
-- Any memory knob change requires a **process restart** (or `node --watch` in dev, `package.json:9`).
-- There is **no admin/control endpoint** to mutate config — only `GET /health`, `GET /v1/models`,
-  `POST /v1/chat/completions` exist (`docs/api.md`, route files under `src/http/routes`).
-- A few knobs (`semanticTopK`, `episodicTopK`, `graphMaxResults`, `contextMaxTokens`,
-  per-call `timeouts.*`, cache TTLs, `memoryWriteWhitelist`) are read **per request** off the live
-  `config` object, so an in-memory mutation of `config.memory.*` *would* take effect without restart
-  **if** something mutated it — but nothing does, and the adapter `enabled` flags and clients are
-  fixed at construction, so toggling backends or credentials still needs a restart. A self-improvement
-  loop could exploit the per-request reads by mutating the shared config object in-process, but that
-  is not a supported/wired path today.
-
----
-
-## 4. Driving a single query programmatically (`/v1/chat/completions`)
-
-Contract enforced by `validateChatCompletionsRequest` (`src/http/validation/chat-completions.js`)
-and the route (`src/http/routes/chat-completions.js`).
-
-### 4.1 Identity / scope
-- **Required header**: exactly one of `X-OpenWebUI-Chat-Id` or `X-Conversation-ID` (must match if
-  both given); becomes `requestBody.chatId` → `conversationId` (`chat-completions` validation `211-246`).
-  Missing → HTTP 400.
-- **Optional `user` body field**: passthrough to upstream *and* used as the memory `scopeKey` when
-  present (`validation:69,77-83`; `memory-controller.js:501-506`). This is the lever for per-user
-  memory scoping; without it, scope = chat-id.
-- **Bearer auth**: `Authorization: Bearer <SAGE_API_KEY>` on all `/v1/*` (`docs/api.md:17-22`,
-  `src/http/hooks/auth.js`).
-
-### 4.2 Streaming vs non-streaming
-- `stream: false` (default) → `createChatCompletion`, returns one OpenAI completion JSON
-  (`route:44-53`, `chat-service.js:28-154`).
-- `stream: true` → SSE: `Content-Type: text/event-stream`, `data: <json>` lines, terminated by
-  `data: [DONE]` (`route:55-129`, `chat-service.js:156-311`). `stream_options` only forwarded when
-  streaming (`validation:57-59`).
-- Both paths run memory READ (awaited) + user-turn WRITE (fire-and-forget) before upstream, and an
-  assistant-turn WRITE after.
-
-### 4.3 Passthrough params (forwarded upstream)
-`temperature, top_p, max_tokens, max_completion_tokens, reasoning_effort, reasoning, stop, seed,
-presence_penalty, frequency_penalty, user` (`validation:5-17`). `reasoning_effort:"none"` /
-`reasoning.effort:"none"` are stripped (`validation:248-261`). Rejected: `functions`,
-`function_call`, `n != 1` (`validation:4,29-49`).
-
-### 4.4 Tool calling
-- `tools` (array of `{type:"function", function:{name,description?,parameters?}}`) and `tool_choice`
-  (`none`|`auto`|`required`|`{type:"function",function:{name}}`) (`validation:94-209`).
-- Server merges built-in tools (`get_memories`, `add_memory`, web tools), MCP tools
-  (`mcp.<server>.<tool>`), and non-conflicting client tools (`tool-registry`, `docs/internals.md:118-126`).
-- Bounded loop: up to `SAGE_TOOL_MAX_ROUNDS` (default 6); per-call timeout `SAGE_TOOL_TIMEOUT_MS`;
-  parallelism `SAGE_TOOL_MAX_PARALLEL_CALLS` (`chat-service.js:333-553`, `env.js:256-264`). Tool
-  results appended as `tool` role messages between rounds.
-
-### 4.5 Minimal call to WRITE a memory
-The user turn of any chat request is auto-ingested, but extraction only produces durable facts via
-mem0. To force an explicit, deterministic write, call the `add_memory` tool. Minimal non-stream
-request that gets the model to store a memory:
-```bash
-curl -sS http://localhost:8787/v1/chat/completions \
-  -H "Authorization: Bearer $SAGE_API_KEY" \
-  -H "X-Conversation-ID: tune-001" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-5.2",
-    "messages": [{"role":"user","content":"Remember that I prefer tea over coffee."}],
-    "tools": [{"type":"function","function":{"name":"add_memory",
-      "parameters":{"type":"object","properties":{
-        "text":{"type":"string"},"importance":{"type":"integer"},
-        "category":{"type":"string"},"event_time":{"type":"string"}},
-        "required":["text"]}}}],
-    "tool_choice": {"type":"function","function":{"name":"add_memory"}}
-  }'
-```
-`add_memory` routes to `memory-service.addMemoryFromTool` → `processMessage(role:"user")`
-(`add-memory.js:112-119`, `memory-service.js:167-198`). The write is still asynchronous relative to
-backend persistence and depends on mem0 for fact extraction; episodic storage to Mnemosyne is
-unconditional. Note `importance` is `1..10` at the tool boundary, normalized to `0..1` internally
-(`add-memory.js:68-88`, `memory-service.js:251-266`).
-
-### 4.6 Minimal call to RETRIEVE against it
-Two ways:
-1. **Implicit** — any subsequent chat request with the **same scope** (same `X-Conversation-ID`, or
-   same `user`) injects recalled memory as the third system message; you observe it indirectly via
-   the model's answer.
-2. **Explicit** — call the `get_memories` tool, which returns the recalled memories as structured
-   JSON in the tool result (best for a tuning loop that wants to inspect recall directly):
-```bash
-curl -sS http://localhost:8787/v1/chat/completions \
-  -H "Authorization: Bearer $SAGE_API_KEY" \
-  -H "X-Conversation-ID: tune-001" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-5.2",
-    "messages": [{"role":"user","content":"What do you remember about my drink preference?"}],
-    "tools": [{"type":"function","function":{"name":"get_memories",
-      "parameters":{"type":"object","properties":{
-        "query":{"type":"string"},"top_k":{"type":"integer"}},"required":["query"]}}}],
-    "tool_choice": {"type":"function","function":{"name":"get_memories"}}
-  }'
-```
-`get_memories` → `getMemoriesForTool` retrieves via the controller and returns
-`identity + graph + semantic` memories sliced to `top_k` (default `config.memory.topK`)
-(`get-memories.js:28-56`, `memory-service.js:135-165`). **It deliberately omits episodic.** It also
-uses `conversationId:"tool-memory"` and `user:null` unless wired otherwise, so its scope is
-`"tool-memory"` — **not** the request's chat scope (`memory-service.js:140-150`). That is a
-mismatch to be aware of: `get_memories` will not see memories written under a different scope key
-unless the caller passes a matching `user`/conversation (which the tool handler does not currently
-thread through). For faithful read-back in a tuning loop, prefer the implicit path (same scope) or
-account for this fixed scope.
+1. **Sandbox + version control.** Work on a new git branch; commit frequently (but see §9 on what
+   *not* to commit). The benchmark runs against a **dedicated throwaway Qdrant collection**
+   `bench_<runid>` — never the real `sage_mem_v2`.
+2. **Separate instance.** Launch a dedicated benchmark Sage process on a **non-default port** (e.g.
+   8799), pointed at `bench_<runid>`, with **mem0 and Zep disabled**, **query cache disabled**,
+   **retrieval budget generous**, and **admin routes enabled** (§3). Never populate or mutate config on
+   any instance that may point at real memory.
+3. **Secrets.** Do not read, print, copy, move, or edit any value in `.env.local`. The checkpoint
+   step (§6) reaches the model through the running Sage; never handle a key directly.
+4. **Cost discipline (all model calls counted, none hidden).**
+   - The **inner loop makes zero model calls** (retrieval-only scoring via `/admin/retrieve`).
+   - **Population makes zero model calls** when using the `/admin/ingest` hook (§3, §5). If — and only
+     if — a generation-free ingest path cannot be wired and population must use `/v1/chat/completions`,
+     those calls must be **counted, capped, and logged separately before the run begins**, and called
+     out in the plan. They are never outside the cost discipline.
+   - The **checkpoint** (§6) is the only intended model-calling step. Enforce a hard ceiling: stop all
+     checkpoint model calls once a configurable budget is reached (default: 20 checkpoint runs), plus a
+     `$`/token backstop. Provide a `--no-checkpoint-model-calls` flag for debugging.
+5. **Run caps.** Stop on the first of: wall-clock cap (default 8h), iteration cap (default 1000), or
+   convergence (no best-score improvement for N iterations, default 100).
+6. **Crash resilience.** Catch per-iteration exceptions, log, and continue with the next candidate — a
+   single failure must not idle the night. Persist state (archive, best, run log, manifest) every
+   iteration so a process restart resumes.
+7. **Gate discipline (load-bearing).** Do **not** launch the unattended loop unless Gates 0–3 (§8)
+   each pass. On any gate failure: **stop, write `GATE_FAILURE.md` (which gate, evidence, diagnosis,
+   proposed fix), and do not launch.** Never run the loop over an unvalidated harness.
 
 ---
 
-## 5. Retrieval backends — read vs write roles
+## 3. Sage harness additions (three small admin hooks)
 
-| Backend | Client / pkg | On READ path? | On WRITE path? | Contributes |
-|---|---|---|---|---|
-| **Mnemosyne** | `mnemosy-ai` `createMnemosyne` (`mnemosyne-client.js`) | **Yes** — identity probe (in-proc), cold-start probe, semantic search, episodic summaries (in-proc) | **Yes** — episodic store, semantic fact upsert, dedup lookup | Primary store. Episodic raw turns + semantic facts in Qdrant; the **semantic search** is the main durable recall channel. Identity & episodic *reads* are in-process only (lost on restart). |
-| **mem0** | `mem0ai` `MemoryClient` (`mem0-adapter.js`) | **No** (test `memory-controller.test.js:38-87` asserts retrieval never calls mem0; `README.md:90`) | **Yes** — the *only* fact extractor; its output feeds Mnemosyne semantic + Zep graph upserts | Turns raw messages into structured facts. If absent, no semantic/graph facts are ever created. |
-| **Zep** | `@getzep/zep-cloud` `ZepClient` (`zep-adapter.js`) | **Yes** — `graph.search` (the "graph facts" bucket), with 404 fallback to `edge.getByUserId` | **Yes** — `graph.addFactTriple` per extracted fact | Graph/relational recall keyed on `userId = scopeKey`. |
-| **Redis** | `ioredis` (`redis-cache.js`) | **Yes** — identity cache + query-context cache (read), with in-memory `Map` fallback when no client | **Yes** — identity refresh + scope invalidation | Latency cache only; never an authoritative source. Falls back to a process-local Map if `redis` client is null (only constructed when `redisEnabled`). |
+`SAGE_ANALYSIS.md §3` confirms config is read once at startup, no hot-reload, no admin endpoint —
+**but** the read-side knobs are read **per-request off the live `config` object**. Exploit that. Add
+three guarded admin routes.
 
-Net: **durable cross-restart recall flows through Mnemosyne semantic search and Zep graph search.**
-Identity and episodic buckets are in-process and ephemeral. mem0 is strictly write-side.
+**Hardening (applies to all three):**
+- Disabled by default; require `SAGE_ADMIN_ENABLED=true`.
+- Local/benchmark mode only; bind to localhost; **must never be exposed on public/staging/production**
+  deployments.
+- Use the existing bearer auth (or a dedicated benchmark admin credential).
+- Log every config mutation (keys + values), but **never log secrets**.
 
----
+1. **`POST /admin/ingest`** — generation-free memory write. Body `{ scope, text, category?,
+   importance?, timestamp? }`. Calls the controller's write path (`processMessage`, role `user`)
+   directly, **with no upstream model call**. This is how the benchmark populates memory. Return a
+   write ack with the resulting stored ids / counts so completeness can be verified.
 
-## 6. Tests and how they would run (not run here)
+2. **`POST /admin/memory-config`** — mutate the live `config.memory.*` read-side fields in place; the
+   change takes effect on the next request (no restart). **Allowlist exactly** these keys and **reject
+   unknown keys with an error (do not silently ignore):** `semanticTopK`, `episodicTopK`,
+   `graphMaxResults`, `contextMaxTokens`, and the fixed retrieval-budget fields if they must be set.
+   After mutating, **defensively flush the Redis query-context cache**. Return the effective config.
 
-Runner: Node's built-in test runner — `npm test` → `node --test` (`package.json:10`), no extra
-framework, no coverage tooling configured. Test files live in `test/` (16 files). Memory-relevant:
+3. **`POST /admin/retrieve`** — run `retrieveContext` for `{ query, scope }` and return the retrieved
+   buckets **and the assembled post-trim context block**, with **no upstream model call**. Return at
+   least: `{ semanticMemories, episodicSummaries, graphMemories, identityMemories, contextBlock,
+   contextTokenCount, partial, cacheHit }`. `cacheHit` is required (Gate 1 checks it is `false`).
 
-- `test/memory-controller.test.js` — asserts: retrieval never calls mem0 (write-only invariant);
-  cold-start short-circuit skips graph/semantic when no identity & no scope memories;
-  `graphMaxResults` is threaded to Zep; `normalizeQueryForCache` behavior; `createMessageId`
-  stability/sha256 shape; global write semaphore enforces concurrency. Uses fully mocked adapters,
-  no live backends.
-- `test/memory-service.test.js` — recall/extraction failure tolerance (per `docs/internals.md:237`).
-- `test/conversation-store.test.js` — SQLite mirror-sync + assistant-append (per `internals.md:233`).
-- `test/env.test.js` — config parsing/defaults/validation.
-- `test/chat-service.test.js` — upstream payload ordering (the three system messages), streaming,
-  tool loop.
-- Others: `app.test.js` (auth, routes, SSE, error mapping), `messages.test.js`,
-  `model-service.test.js`, `tool-registry.test.js`, `tool-executor.test.js`,
-  `builtin-tools.test.js`, `chat-completions-validation.test.js`, `document-cache.test.js`,
-  `logger.test.js`, `mcp-client-manager.test.js`, `openai-chat-serializer.test.js`.
-
-Tests mock external clients, so they should run without Redis/Qdrant/Zep/mem0/OpenAI. (`better-sqlite3`
-is a native module; `conversation-store`/`document-cache` tests need it compiled for the platform.)
-There is **no integration test** exercising live memory backends, and `docs/limitations-and-known-issues.md:38-41`
-lists missing tests: max-tool-round overflow, stream-logging reliability, prompt-load integrity.
-
-To run (do not in this task): `npm install` then `npm test`; a single file via
-`node --test test/memory-controller.test.js`.
-
-Maintenance scripts (not tests): `scripts/migrate-importance-scale.js`
-(`npm run migrate:importance`, normalizes stored `importance` 1..10→0..1, idempotent marker in
-Qdrant `sage_meta`) and `scripts/verify-memory-deps.js` (`npm run verify:memory-deps`).
+These are additive, guarded, localhost-only, and do not change behaviour for normal traffic.
 
 ---
 
-## 7. Known limitations / landmines
+## 4. Benchmark generator (the fitness function's data)
 
-From `docs/limitations-and-known-issues.md`:
-- **Confirmed**: Chat Completions only; text-only content; `n=1` only; **long-term memory is globally
-  shared / not partitioned per tenant at the HTTP layer**; clients must resend history each request.
-- **Operational**: memory extraction is background best-effort (never affects request success); Brave
-  tools fail at runtime if key/network bad; MCP startup gated by per-server `required`; **document
-  cache is process-local in-memory** (`document_id`/`result_id` lost on restart, not shared across
-  instances); direct URL fallback allows private hosts (SSRF risk — put egress controls around Sage).
-- **Code-level (documented, unfixed)**: `streamRequested` logging unreliable at `onRequest`
-  (`src/http/hooks/request-logging.js`); `system_prompt.yaml` contains mojibake/encoding artifacts
-  that degrade prompt fidelity.
+Generate synthetic, seeded, reproducible data, isolated to `bench_<runid>`.
 
-Additional risks I observed in the code (not in the docs), ordered by relevance to a memory-tuning loop:
-1. **Doc-vs-code extraction divergence (highest impact).** `docs/internals.md` "Deep Dive 6" and the
-   `SAGE_MEMORY_EXTRACT_EVERY` / `SAGE_MEM_EXT_HISTORY_MULTIPLIER` / `SAGE_MEMORY_EXTRACTION_MODEL` /
-   `SAGE_MEMORY_SUMMARY_MODEL` env vars describe a batched, summarized, ID-preserving extraction
-   pipeline backed by the `memory_generations`/`memory_extraction_runs` SQLite tables. **None of that
-   is wired in.** Actual extraction is single-message via mem0 (`memory-controller.js:326-344`), and
-   the SQLite extraction tables/methods are never called. Tuning those env vars will have **no effect**.
-2. **In-process identity & episodic state.** `getIdentityContext` returns only from the in-process
-   `canonicalFacts` Map (never queries Mnemosyne for identity), and episodic summaries come from a
-   20-entry in-process ring buffer (`mnemosyne-adapter.js:138-180,4-16`). Both reset on restart and
-   are not shared across instances — so two of the four read buckets are ephemeral/non-distributed.
-3. **mem0 is a single point of fact creation.** No mem0 key ⇒ `facts=[]` ⇒ nothing is ever written
-   to the Mnemosyne *semantic* store or Zep graph (`mem0-adapter.js:10-16,27-29`,
-   `memory-controller.js:345-349`). Recall then degrades to episodic raw turns only (which themselves
-   are in-process for reads). This makes mem0 availability the dominant factor in recall quality.
-4. **Semantic recall isn't scope-filtered.** `searchSemantic` passes only `query`/`topK` to the
-   Mnemosyne client and never filters by `scopeKey` (`mnemosyne-adapter.js:117-124`). Combined with
-   globally-shared memory, recall can surface other scopes' facts.
-5. **`get_memories` uses a fixed `"tool-memory"` scope** and omits episodic, so explicit read-back
-   does not match the implicit chat-recall scope (`memory-service.js:135-150`). Easy to mis-measure
-   recall in a tuning loop.
-6. **Tight default retrieval window (200 ms) with sequential pre-steps** before the parallel fan-out
-   (§2.4 note) makes `partial`/timeout the common case on cold or remote backends; recall is silently
-   degraded, not errored.
-7. **Importance scale split**: tool boundary is 1..10 (`add-memory.js`), persisted scale 0..1
-   (`memory-service.js:251-266`); a migration script exists, implying historical data may be mixed.
-8. **`config.memory.topK` does not affect chat retrieval** — only the `get_memories` tool and the
-   tool fallback use it; chat recall depth is governed by `semanticTopK`/`episodicTopK`/`graphMaxResults`.
+Each synthetic user gets a multi-session history of planted facts salted with **distractor facts**
+(similar-looking, wrong) so retrieval must discriminate. Every planted answer is a **high-entropy
+unique marker code** (e.g. a random base32 string like `K7QF2M`) the base model cannot guess — so a
+correct retrieval is the only way the marker can appear. Four question types:
+
+- **Single-hop** — plant a fact, ask directly. Gold = that marker retrieved.
+- **Multi-hop** — two facts across different sessions that must combine. Gold = both retrieved.
+- **Temporal update** — plant a fact, supersede it later. Gold = the **updated** marker present and the
+  **stale** marker absent (or ranked below).
+- **Abstention** — ask about a never-planted fact. Evaluated **only at the end-to-end checkpoint** (did
+  the model abstain); excluded from the retrieval-only inner-loop score (there is no gold to retrieve).
+
+**Forbidden-word rule (silent-failure landmine — strict).** The `mnemosy-ai` layer silently refuses to
+store any text matching `/secret|password|token|api ?key|card|ssn/i` and swallows the error
+(`SETUP_STATUS.md` #2). Therefore: **no generated text may contain `secret`, `password`, `token`,
+`api key`, `card`, or `ssn` anywhere** — including labels, templates, distractors, planted facts, and
+the question text sent into Sage. Do **not** call the answer values "tokens"; call them **marker
+codes** / **answer codes** / **raw codes**. **Validate every generated string against the regex before
+population, and fail before population if any match.**
+
+**Generator validations (fail before population if any fail):**
+- All marker codes are **unique across both the dev and held-out sets**.
+- No generated text matches the forbidden regex.
+- **No real user scope appears** in the synthetic data (scopes are run-prefixed, e.g. `benchuser_*`);
+  confirm none collide with anything that could be a real scope.
+
+Produce two disjoint seeded sets: a **dev** set the loop optimises against, and a **held-out** set
+(different seed) used only at checkpoints. Keep them small enough that the full dev set scores in
+seconds.
 
 ---
 
-## 8. Open questions / ambiguities (unresolved from code alone)
+## 5. Harness flow
 
-1. **`mnemosy-ai` client semantics.** The package (`mnemosyne-client.js:1`) is external; the actual
-   filtering/ranking of `recall({query, topK})` and whether stored bracket-tags (`[scope:...]`) are
-   used for server-side filtering is opaque. I could only confirm Sage passes `query`/`topK` and does
-   not pass scope, so scope-isolation of semantic recall depends on undocumented `mnemosy-ai` behavior.
-2. **Does Mnemosyne ever surface identity-category facts on read?** Sage's adapter never queries
-   Mnemosyne for identity (only the in-process Map), so even if `mnemosy-ai` stored identity facts
-   durably, Sage would not read them back post-restart. Intended? Unclear.
-3. **mem0 retrieval intentionally disabled vs incomplete?** README and a test assert mem0 is
-   write-only, but mem0 natively supports search; whether read-path mem0 was dropped deliberately or
-   is unfinished is not derivable from code.
-4. **Extraction pipeline status.** Whether the unused SQLite extraction tables/`extractEvery` machinery
-   is planned-but-unwired, or removed-but-left-behind, can't be determined from the repo (no TODOs in
-   the relevant files; the docs still describe it as live).
-5. **Intended tenancy model.** Docs say memory is "globally shared," yet `scopeKey` keys off
-   `user`/`conversationId`. Whether the global-sharing statement reflects the semantic-recall
-   non-filtering (#4 in §7) or a deeper design intent is ambiguous.
-6. **`MNEMOSYNE_COLLECTION_NAME` default discrepancy** between code (`sage_mem_v2`, `env.js:232`,
-   `.env.example:86`) and `docs/internals.md:225` (`testing_container`) — which is authoritative for a
-   given deployment depends on what was actually set in env; the code default is `sage_mem_v2`.
-7. **`embeddingProvider` knob** (`SAGE_MEMORY_EMBEDDING_PROVIDER`) is parsed but never branched on;
-   whether alternate embedding providers were intended is unknown.
+1. **Preflight (Gate 0, §8).** Verify isolation and instance hygiene *before touching memory*.
+2. **Bring up the benchmark Sage** (separate process, §2): `MNEMOSYNE_COLLECTION_NAME=bench_<runid>`,
+   `SAGE_MEM0_ENABLED=false`, `SAGE_ZEP_ENABLED=false`, `SAGE_MEMORY_QUERY_CACHE_TTL_SEC=0`, retrieval
+   budget/timeouts ≥ 3000 ms, `SAGE_ADMIN_ENABLED=true`, on a non-default port.
+3. **Snapshot baseline config** before any mutation (record it in the manifest; restore on clean exit).
+4. **Populate once, generation-free**, via `POST /admin/ingest` per planted fact. Writes are async —
+   confirm completion deterministically: poll the collection point count, **and** verify
+   **every gold marker is retrievable** at a generous K via `/admin/retrieve`. If any gold marker is
+   not retrievable after a populate timeout, **stop and write `GATE_FAILURE.md`** (do not run a loop
+   over a half-populated store).
+5. **Inner loop (§6/§7), generation-free.** For each candidate config: `POST /admin/memory-config`,
+   then for each dev question `POST /admin/retrieve` and score from the response. No model calls.
+6. **Checkpoint (periodic, §6).**
+
+Because config is mutated in-process with no restart, the populated Qdrant data **and** the in-process
+episodic ring buffer persist across all iterations — populate once, evaluate many.
+
+---
+
+## 6. Scoring and utility
+
+**Score against what the model would actually see.** A marker can be *retrieved* yet *trimmed out* of
+the final block when `contextMaxTokens` is small. So the **primary signal is computed on the post-trim
+`contextBlock`** returned by `/admin/retrieve`, not only the pre-trim buckets (record both; the
+pre-trim buckets are for diagnosis). This is what makes `contextMaxTokens` a real lever rather than an
+invisible one.
+
+**Per-question scoring (deterministic):**
+- **recall@ctx** = (required gold markers present in the post-trim `contextBlock`) / (required count).
+  Multi-hop scores 1.0 only if both markers are present.
+- **Temporal update**: pass = updated marker present in `contextBlock` **and** stale marker absent
+  (binary, for determinism).
+- **MRR** (reported, secondary): rank of the first required gold marker within the returned
+  `semanticMemories` ordering (the bucket `semanticTopK` controls); `1/rank`, or 0 if absent.
+- **Abstention**: not scored here — deferred to the end-to-end checkpoint.
+
+**Utility per config** = `mean(recall@ctx) − λ · mean(contextTokenCount)` (MRR reported as a
+tiebreaker). The cost term is **mandatory** — without it the optimiser wins by maxing
+`contextMaxTokens` and dumping everything into context, the exact failure memory exists to prevent.
+`λ` starts conservative and is a config value. Note `contextMaxTokens` both bounds and is penalised by
+the cost term; that interaction is intended.
+
+**Determinism check (folded into Gate 1):** score the baseline twice; utility must be **identical**.
+If not, retrieval scoring is noisy — investigate (embedding/search determinism), and if it cannot be
+made deterministic, **widen the keep threshold to exceed the measured noise band** so keep/revert
+decisions aren't driven by noise. Log the noise band in the manifest.
+
+**Two-tier overfitting control:**
+- **Free held-out retrieval check** (no model calls): periodically score the current best config on the
+  held-out set via `/admin/retrieve`. If dev climbs but held-out is flat → generator-quirk overfitting;
+  log it.
+- **Capped end-to-end checkpoint** (model calls, under the §2 budget): for the current best config, run
+  a held-out slice end-to-end through `/v1/chat/completions` (including abstention items) to confirm
+  retrieval gains translate to answer gains. **External benchmarks (LoCoMo/LongMemEval) are optional**
+  — use them only if already present locally or trivially fetchable without new accounts/services; the
+  synthetic held-out checkpoint is the required one. If external benchmarks are skipped, **say so in
+  `RUN_REPORT.md`.**
+
+---
+
+## 7. The optimisation loop (EvolveMem-style, file-based archive)
+
+Skim EvolveMem (`github.com/aiming-lab/SimpleMem`, the `EvolveMem/` package) **for the loop/archive
+design only** — diagnosis → propose → apply → evaluate → keep-or-revert → archive, with
+revert-on-regression and explore-on-stagnation. **Do not fork its retriever** (we drive Sage over
+HTTP). **If network/dependency setup fails, do not block** — implement the loop from the design in this
+spec and note the skipped external read in the report.
+
+Implement a small harness (Python suggested) that:
+1. Maintains a resumable on-disk **archive** of evaluated configs + scores.
+2. Each iteration: select a parent (exploit best vs explore), propose a read-side knob mutation, apply
+   via `/admin/memory-config`, evaluate on the dev set (§6).
+3. **Keep** if utility improves beyond the keep threshold; **revert** if it regresses. On stagnation,
+   widen exploration / random-restart within knob bounds.
+4. Persist archive + best + run log + manifest every iteration.
+5. **On clean exit**, restore the benchmark instance to the snapshotted baseline config (best-effort;
+   the instance and collection are throwaway regardless).
+
+Knob bounds: `semanticTopK` 1–30, `episodicTopK` 0–20, `contextMaxTokens` 200–4000, `graphMaxResults`
+fixed (Zep off). Respect §2 caps.
+
+**Dry run:** support `--dry-run --iterations 3` that exercises generate → populate → gates → a few
+loop iterations end-to-end on the throwaway collection without launching the detached overnight run, so
+the plan can be validated cheaply.
+
+### 7.1 Reference grid search (comparison mode — required)
+
+The action space is small by design, so the loop's job on night one is to behave correctly in a
+known-small space, not to discover magic. To make that verifiable, run a **coarse reference grid
+search** as an independent baseline, then compare it against the loop. This adds no new capability and
+no code-level change — it reuses the exact same generation-free scoring over the same knobs.
+
+- Before (or in parallel with) the loop, evaluate a coarse grid over the knob space against the **same
+  populated store and the same dev set** — e.g. `semanticTopK ∈ {1,3,5,10,20,30}`,
+  `episodicTopK ∈ {0,3,10}`, `contextMaxTokens ∈ {400,800,1200,2000,4000}` (~90 configs). Each scores
+  generation-free in seconds, so the whole grid is minutes. Record **grid-best** by the same utility.
+- Run the archive/mutation loop overnight as specified.
+- Validate **grid-best** and **loop-best** on the **same** held-out retrieval set and the **same**
+  capped end-to-end checkpoint, so all comparisons are apples-to-apples.
+
+**Interpretation (state this in the report):** if the loop merely rediscovers grid-best, that is a
+**pass** — it proves the loop behaves correctly in a known-small search space. If the loop
+underperforms grid-best, that is a **loop bug signal**, not a config insight. If it beats grid-best
+(possible via the cost/MRR tradeoff), note it but don't over-read it. The question being answered is
+"did the loop behave correctly versus an exhaustive reference?", not "did it find something
+exhaustive search couldn't."
+
+Expose this via a `--grid` flag (and include the grid in `--dry-run`).
+
+---
+
+## 8. Gates (run before launch; do not launch unless all pass)
+
+- **Gate 0 — isolation preflight (run first, before any write).**
+  - Confirm the benchmark instance's effective collection is `bench_<runid>` and **is not**
+    `sage_mem_v2`. If it cannot be verified, **stop + `GATE_FAILURE.md`**.
+  - Confirm the benchmark instance is a **separate process/port** from the real running Sage.
+  - Confirm **mem0 and Zep are disabled** and the **query cache is disabled** on the benchmark instance.
+  - Confirm no real user scope appears in the generated data.
+- **Gate 1 — non-degenerate, deterministic, complete, uncached.** After populate, score the dev set at
+  baseline via `/admin/retrieve`. Check: a real number is produced; it is **non-degenerate** (not
+  all-zero, not all-identical across questions); **every gold marker is retrievable** (populate
+  completeness, §5); scoring is **deterministic** (run twice, identical); and `cacheHit=false` on every
+  retrieve. Any cache hit during scoring ⇒ **stop + `GATE_FAILURE.md`**.
+- **Gate 2 — knobs change retrieval behaviour (not just aggregate score).** Set `semanticTopK=1` and
+  `semanticTopK=30` and re-run. Confirm **at least one** of these changes: `semanticMemories.length`,
+  returned memory ids, `contextTokenCount`, per-question MRR, or aggregate utility. **Prefer a tiny
+  adversarial gate fixture** where the gold marker is only retrievable at higher K, so the difference is
+  guaranteed to surface. If nothing changes ⇒ knob ignored or cache masking ⇒ fix before proceeding.
+- **Gate 3 — both loop branches fire (deterministic).** Using **forced candidates**, not random
+  mutation: feed one **known-bad/regressive** config (e.g. `semanticTopK=0, episodicTopK=0,
+  contextMaxTokens=200`) and one config likely to score **differently/better** (e.g. `semanticTopK=20`
+  with a generous budget). Confirm **both the keep and the revert code paths are exercised** and the
+  archive records both decisions before unattended launch.
+
+### 8.1 Gate retry policy (transient failures only — mechanical gates only)
+
+A bounded auto-retry is allowed for **transient/environmental** failures on the **mechanical** gates
+(Gates 1–3), because those gates test observable facts and re-running them after a transient condition
+clears is a genuine independent re-test. **A retry re-runs the identical check after a wait/backoff or
+backend warmup — it must NOT change any code or config to make a gate pass** (that would be gaming the
+check, not a flakiness guard).
+
+- **Retry only on this explicit transient allowlist**, logging the reason and attempt number each time:
+  - async writes not yet settled (a gold marker isn't retrievable *yet* while the populate settle
+    window is still open / point count still rising) → backoff and re-check completeness;
+  - cold-start / warmup: a retrieve returned `partial:true` or timed out because the embedding model or
+    Qdrant wasn't warm → brief warmup, retry;
+  - a transient backend error (connection refused / 5xx from Qdrant/Ollama on a call that should
+    succeed) → retry.
+- **Cap:** up to **3 attempts per gate** with exponential backoff. Still failing after 3 → **halt +
+  `GATE_FAILURE.md`**.
+- **Never retry — halt immediately (no retry burns allowed):**
+  - **Any Gate 0 check.** Isolation and safety (wrong/unverifiable collection, shared instance,
+    mem0/Zep/cache not actually off, real scope present) are structural — **never** retry, and **never**
+    retry into a population against a possibly-real instance.
+  - **Any structural mechanical failure that re-running cannot fix:** all-zero or all-identical scores,
+    a non-transient determinism mismatch, `cacheHit=true`, a knob demonstrably ignored, or the
+    keep/revert paths not firing on forced candidates. If a failure repeats *identically* on the first
+    retry, treat it as structural and halt rather than exhausting attempts on a deterministic failure.
+- **Gate 4 (§11) is excluded from all retry** — it is judgment-based and stays **pass-or-halt, no
+  retry, no fix.**
+- Record retry counts in the run log/manifest; if any gate passed only after retries, note it in
+  `VERIFICATION.md` and `RUN_REPORT.md` so the flakiness is visible.
+
+---
+
+## 9. Outputs, run manifest, and version control
+
+**Run manifest** (`manifest.json`, written at start, in git): repo commit SHA, branch name, run id,
+Sage port, benchmark collection name, benchmark seeds, dev/held-out set sizes, knob bounds, checkpoint
+call budget, baseline config snapshot, measured determinism noise band.
+
+**Morning report** (`RUN_REPORT.md`, committed) must include a **comparison table** of, all scored on
+the same dev set / held-out set / checkpoint:
+- **baseline config** (the snapshotted default) — utility,
+- **grid-best config** (§7.1) — config + utility,
+- **loop-best config** — config + utility,
+- **held-out retrieval result** for grid-best and loop-best,
+- **capped end-to-end checkpoint result** for grid-best and loop-best (or a clear note if external
+  benchmarks were skipped).
+
+Plus: a one-line verdict on whether the loop **matched / beat / underperformed** grid-best (per §7.1
+interpretation), iterations run, wall-clock elapsed, estimated checkpoint spend, any overfitting flags,
+and a **"night-two levers"** section listing the code-level retrieval targets (scope-filter fix,
+cross-bucket ranking, dedup/reranking, query rewriting) with why each should help.
+
+**Version-control discipline:**
+- **Commit:** source/harness scripts, config templates, the three admin hooks, `manifest.json`, a
+  **compact archive summary**, and `RUN_REPORT.md` / `GATE_FAILURE.md`.
+- **Do not commit:** secrets, `.env.local`, or large per-iteration logs. Store large logs under a run
+  directory and add them to `.gitignore` unless intentionally compact.
+
+---
+
+## 10. Landmines to respect (from the reports — don't relearn these the hard way)
+
+- **SECRET-word silent store-block** — see §4; forbidden words must not appear in any generated text;
+  validate before population (`SETUP_STATUS.md` #2).
+- **Semantic recall isn't scope-filtered** — isolate via `bench_<runid>` + unique marker codes; assume
+  cross-scope bleed within the collection and make markers unique (`SAGE_ANALYSIS.md §7.4`).
+- **Default 200 ms retrieval window truncates recall** — set budget/timeouts generous and **fixed**;
+  the loop must not tune them down (`SETUP_STATUS.md`, `SAGE_ANALYSIS.md §2.4`).
+- **`topK` ≠ chat retrieval depth** — tune `semanticTopK`/`episodicTopK` (`SAGE_ANALYSIS.md §2.2`).
+- **mem0 extracts 0 facts; structured channel is effectively empty** — run on the semantic (Qdrant)
+  channel with mem0/Zep off (`SETUP_STATUS.md` #3, `SAGE_ANALYSIS.md §5`).
+- **Identity & episodic reads are in-process/ephemeral** — durable recall is semantic search over
+  Qdrant; populate-once + in-process config mutation keeps ephemeral buckets alive across iterations
+  (`SAGE_ANALYSIS.md §1.2 caveat, §5`).
+- **`get_memories` uses a fixed `tool-memory` scope and omits episodic** — do not use it for scoring;
+  use `/admin/retrieve` (`SAGE_ANALYSIS.md §4.6`).
+- **Parsed-but-unused extraction knobs** do nothing — don't tune them (`SAGE_ANALYSIS.md §2.10`).
+- **`SAGE_DEFAULT_MODEL` 404** — the checkpoint calls the real model; ensure a valid default
+  (`gpt-5.2` / `gpt-4.1-mini`) or pass `model` explicitly (`SETUP_STATUS.md` #1).
+
+---
+
+## 11. Implementation verification (Gate 4 — read-only, runs before launch)
+
+Because no human is reviewing this run live, add one automated conformance check after Gates 0–3 pass
+and **before** the detached launch. Spawn a **read-only subagent** (its own context window, read/grep
+tools only — **no write/edit/exec tools**, no code changes). This is a single sequential audit, **not**
+agent teams and **not** a remediation loop. It classifies and either halts or proceeds; **it never
+fixes anything, and the builder must not enter a fix-and-recheck loop.**
+
+The subagent audits the built implementation against the spec and writes **`VERIFICATION.md`**. (Note:
+the §8.1 bounded retry is for *transient mechanical-gate* failures and re-runs an identical check after
+a wait — it does **not** apply here. Gate 4 is judgment-based: pass or halt, no retry, no fix.) Two
+tiers:
+
+**Hard-blocking checklist — if ANY fails: do not launch.** Write `VERIFICATION.md` (findings) and
+`GATE_FAILURE.md`, leave everything un-launched for morning review, and stop.
+- **Isolation:** effective collection is `bench_<runid>`, not `sage_mem_v2`; the benchmark Sage is a
+  separate process/port from the real instance; no real user scope appears in synthetic data.
+- **No model-call leakage:** population uses `/admin/ingest` (not `/v1/chat/completions`); the inner
+  loop and `/admin/retrieve` make zero upstream model calls; the only model calls are the capped
+  checkpoint.
+- **Backends off:** mem0 and Zep disabled and query cache disabled on the benchmark instance.
+- **Forbidden words:** the generator validates all generated text (memory text, distractors, questions,
+  marker codes) against `/secret|password|token|api ?key|card|ssn/i` and fails before population; none
+  are present.
+- **Admin routes guarded:** disabled by default, require `SAGE_ADMIN_ENABLED`, localhost-bound,
+  bearer-authed; `/admin/memory-config` allowlists only the intended read-side keys and rejects unknown
+  keys.
+- **Scope held:** no code-level retrieval changes (no new cross-bucket ranking, scope-filtering, query
+  rewriting, dedup) — only read-side config knobs are mutated.
+- **Caps + audit trail present:** checkpoint budget and run caps enforced; detached launch writes
+  `RUN_STATUS.md` with all required fields; loop persists state for crash-resume.
+
+**Advisory checklist — log in `VERIFICATION.md`, may proceed:** post-trim `contextBlock` scoring (not
+pre-trim); determinism check + noise-aware keep threshold; populate-completeness check; two-tier
+overfitting control; grid comparison mode + report table; complete manifest; clean git discipline.
+
+**Decision rule:** all hard items pass → proceed to launch (§12), with advisory findings logged and
+committed. Any hard item fails → **halt, do not launch**, write the two reports, wait for morning.
+
+> Honest limitation: this verifier shares the builder's model and so shares its blind spots — it is
+> strong at catching *implementation-vs-spec drift* (the thing the human review loop mostly caught) and
+> weak at catching shared reasoning errors. It is a safety gate, not a substitute for the morning
+> cross-model review of `VERIFICATION.md` + `RUN_REPORT.md`.
+
+---
+
+## 12. Unattended launch mechanics
+
+After Gates 0–4 pass, launch the loop as a **detached process** (`tmux`, `nohup`, or `screen`) so it
+survives the Claude Code session disconnecting. Write **`RUN_STATUS.md`** containing: run id, PID,
+exact command used, run directory, stdout/stderr log paths, benchmark collection name, Sage port,
+**resume command**, and **stop command**. Verify the process is still running after detaching before
+considering the launch done.
+
+---
+
+## 13. Plan-mode instruction
+
+Before building: read `SETUP_STATUS.md`, `SAGE_ANALYSIS.md`, and skim EvolveMem (non-blocking). Then
+present a plan covering the three hooks, the generator + validations, the harness, Gates 0–4, the caps,
+and the detached-launch mechanics. **Wait for my approval.** On approval: implement, pass the gates,
+then launch the detached run and write the report. If you hit a blocker you can't safely resolve, stop
+and write it up rather than guessing. **Stay within V0.1 scope.**
