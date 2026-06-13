@@ -46,7 +46,7 @@ test("chat service builds upstream messages in the correct order", async () => {
   await service.createChatCompletion({
     requestBody: {
       model: "gpt-5.2",
-      conversationId: "conv-1",
+      chatId: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
       stream: false,
       upstreamOptions: { temperature: 0.2, reasoning_effort: "high" },
@@ -112,7 +112,7 @@ test("chat service mirrors conversation history and appends assistant replies", 
   await service.createChatCompletion({
     requestBody: {
       model: "gpt-5.2",
-      conversationId: "conv-1",
+      chatId: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
       stream: false,
       upstreamOptions: {},
@@ -167,7 +167,7 @@ test("chat service streams chunks and ingests only final assistant memory", asyn
   for await (const chunk of service.streamChatCompletion({
     requestBody: {
       model: "gpt-5.2",
-      conversationId: "conv-1",
+      chatId: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
       stream: true,
       upstreamOptions: {},

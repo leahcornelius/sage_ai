@@ -21,6 +21,9 @@ function createMemoryController({
     cooldownMs: config.memory.circuitBreaker.cooldownMs,
   });
   const conversationQueues = new Map();
+  const retrievalWindowMs = Number.isFinite(config.memory.retrievalWindowMs)
+    ? config.memory.retrievalWindowMs
+    : config.memory.retrievalBudgetMs;
 
   async function retrieveContext({
     scopeKey,
@@ -40,7 +43,7 @@ function createMemoryController({
     }
 
     const startedAt = Date.now();
-    const deadline = startedAt + config.memory.retrievalBudgetMs;
+    const deadline = startedAt + retrievalWindowMs;
     const normalizedQuery = normalizeQueryForCache(query);
     const identityLookup = await runAdapter({
       adapterName: "redis",

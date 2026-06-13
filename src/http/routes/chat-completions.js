@@ -11,6 +11,7 @@ async function registerChatCompletionRoutes(app) {
   app.post("/chat/completions", async (request, reply) => {
     const requestBody = validateChatCompletionsRequest(request.body, {
       config: app.sageConfig,
+      headers: request.headers,
     });
     const abortController = createAbortControllerFromRequest(request);
     const routeStartedAt = process.hrtime.bigint();

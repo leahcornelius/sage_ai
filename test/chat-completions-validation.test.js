@@ -3,61 +3,101 @@ import test from "node:test";
 
 import { validateChatCompletionsRequest } from "../src/http/validation/chat-completions.js";
 
-test("validateChatCompletionsRequest requires conversation id", () => {
+test("validateChatCompletionsRequest requires chat id headers", () => {
   assert.throws(
     () =>
       validateChatCompletionsRequest({
         model: "gpt-5.2",
         messages: [{ role: "user", content: "Hello" }],
       }),
-    /conversation_id/
+    /X-OpenWebUI-Chat-Id/
   );
 });
 
-test("validateChatCompletionsRequest accepts conversationId alias", () => {
-  const validated = validateChatCompletionsRequest({
-    model: "gpt-5.2",
-    conversationId: "conv-1",
-    messages: [{ role: "user", content: "Hello" }],
-  });
+test("validateChatCompletionsRequest accepts X-OpenWebUI-Chat-Id", () => {
+  const validated = validateChatCompletionsRequest(
+    {
+      model: "gpt-5.2",
+      messages: [{ role: "user", content: "Hello" }],
+    },
+    {
+      headers: {
+        "x-openwebui-chat-id": "conv-1",
+      },
+    }
+  );
 
-  assert.equal(validated.conversationId, "conv-1");
+  assert.equal(validated.chatId, "conv-1");
 });
 
-test("validateChatCompletionsRequest rejects mismatched aliases", () => {
+test("validateChatCompletionsRequest accepts X-Conversation-ID", () => {
+  const validated = validateChatCompletionsRequest(
+    {
+      model: "gpt-5.2",
+      messages: [{ role: "user", content: "Hello" }],
+    },
+    {
+      headers: {
+        "x-conversation-id": "conv-2",
+      },
+    }
+  );
+
+  assert.equal(validated.chatId, "conv-2");
+});
+
+test("validateChatCompletionsRequest rejects mismatched chat id headers", () => {
   assert.throws(
     () =>
-      validateChatCompletionsRequest({
-        model: "gpt-5.2",
-        conversation_id: "conv-a",
-        conversationId: "conv-b",
-        messages: [{ role: "user", content: "Hello" }],
-      }),
+      validateChatCompletionsRequest(
+        {
+          model: "gpt-5.2",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+        {
+          headers: {
+            "x-openwebui-chat-id": "conv-1",
+            "x-conversation-id": "conv-2",
+          },
+        }
+      ),
     /must match/
   );
 });
 
 test("validateChatCompletionsRequest passes reasoning controls to upstream options", () => {
-  const validated = validateChatCompletionsRequest({
-    model: "gpt-5.2",
-    conversation_id: "conv-1",
-    messages: [{ role: "user", content: "Hello" }],
-    reasoning_effort: "high",
-    reasoning: { effort: "medium" },
-  });
+  const validated = validateChatCompletionsRequest(
+    {
+      model: "gpt-5.2",
+      messages: [{ role: "user", content: "Hello" }],
+      reasoning_effort: "high",
+      reasoning: { effort: "medium" },
+    },
+    {
+      headers: {
+        "x-openwebui-chat-id": "conv-1",
+      },
+    }
+  );
 
   assert.equal(validated.upstreamOptions.reasoning_effort, "high");
   assert.deepEqual(validated.upstreamOptions.reasoning, { effort: "medium" });
 });
 
 test("validateChatCompletionsRequest treats reasoning none as unset", () => {
-  const validated = validateChatCompletionsRequest({
-    model: "gpt-5.2",
-    conversation_id: "conv-1",
-    messages: [{ role: "user", content: "Hello" }],
-    reasoning_effort: "none",
-    reasoning: { effort: "none" },
-  });
+  const validated = validateChatCompletionsRequest(
+    {
+      model: "gpt-5.2",
+      messages: [{ role: "user", content: "Hello" }],
+      reasoning_effort: "none",
+      reasoning: { effort: "none" },
+    },
+    {
+      headers: {
+        "x-openwebui-chat-id": "conv-1",
+      },
+    }
+  );
 
   assert.equal(validated.upstreamOptions.reasoning_effort, undefined);
   assert.equal(validated.upstreamOptions.reasoning, undefined);
@@ -66,7 +106,6 @@ test("validateChatCompletionsRequest treats reasoning none as unset", () => {
 test("validateChatCompletionsRequest uses configured default model when request model is missing", () => {
   const validated = validateChatCompletionsRequest(
     {
-      conversation_id: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
     },
     {
@@ -75,6 +114,9 @@ test("validateChatCompletionsRequest uses configured default model when request 
           defaultModel: "gpt-5.2-mini",
           allowModelOverride: true,
         },
+      },
+      headers: {
+        "x-openwebui-chat-id": "conv-1",
       },
     }
   );
@@ -88,7 +130,6 @@ test("validateChatCompletionsRequest rejects model override when disabled", () =
       validateChatCompletionsRequest(
         {
           model: "gpt-5.2",
-          conversation_id: "conv-1",
           messages: [{ role: "user", content: "Hello" }],
         },
         {
@@ -97,6 +138,9 @@ test("validateChatCompletionsRequest rejects model override when disabled", () =
               defaultModel: "gpt-5.2-mini",
               allowModelOverride: false,
             },
+          },
+          headers: {
+            "x-openwebui-chat-id": "conv-1",
           },
         }
       ),

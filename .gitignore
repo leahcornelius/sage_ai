@@ -2,3 +2,4 @@ node_modules/
 .env.local
 conversations/*
 logs/
+.webui_secret_key

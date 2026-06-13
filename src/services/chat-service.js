@@ -43,7 +43,7 @@ function createChatService({
     const userTurnIndex = deriveLastUaTurnIndex(requestBody.messages);
     const assistantTurnIndex = userTurnIndex + 1;
     void memoryService.processMessage({
-      conversationId: requestBody.conversationId,
+      conversationId: requestBody.chatId,
       user: requestBody.user,
       role: "user",
       turnIndex: userTurnIndex,
@@ -54,7 +54,7 @@ function createChatService({
     });
 
     const memoryContextResult = await memoryService.retrieveContext({
-      conversationId: requestBody.conversationId,
+      conversationId: requestBody.chatId,
       user: requestBody.user,
       query: requestBody.lastUserMessage,
       modelId: requestBody.model,
@@ -120,7 +120,7 @@ function createChatService({
     const assistantMessage = extractAssistantTextFromCompletion(completion);
     appendAssistantMessageToConversation({
       conversationStore,
-      conversationId: requestBody.conversationId,
+      conversationId: requestBody.chatId,
       assistantMessage,
       logger: operationLogger,
     });
@@ -140,7 +140,7 @@ function createChatService({
     if (!skipMemoryExtraction) {
       scheduleConversationMemoryIngestion({
         memoryService,
-        conversationId: requestBody.conversationId,
+        conversationId: requestBody.chatId,
         assistantMessage,
         modelId: requestBody.model,
         user: requestBody.user,
@@ -165,7 +165,7 @@ function createChatService({
     const userTurnIndex = deriveLastUaTurnIndex(requestBody.messages);
     const assistantTurnIndex = userTurnIndex + 1;
     void memoryService.processMessage({
-      conversationId: requestBody.conversationId,
+      conversationId: requestBody.chatId,
       user: requestBody.user,
       role: "user",
       turnIndex: userTurnIndex,
@@ -176,7 +176,7 @@ function createChatService({
     });
 
     const memoryContextResult = await memoryService.retrieveContext({
-      conversationId: requestBody.conversationId,
+      conversationId: requestBody.chatId,
       user: requestBody.user,
       query: requestBody.lastUserMessage,
       modelId: requestBody.model,
@@ -285,7 +285,7 @@ function createChatService({
       if (completed) {
         appendAssistantMessageToConversation({
           conversationStore,
-          conversationId: requestBody.conversationId,
+          conversationId: requestBody.chatId,
           assistantMessage,
           logger: operationLogger,
         });
@@ -298,7 +298,7 @@ function createChatService({
         );
         scheduleConversationMemoryIngestion({
           memoryService,
-          conversationId: requestBody.conversationId,
+          conversationId: requestBody.chatId,
           assistantMessage,
           modelId: requestBody.model,
           user: requestBody.user,
@@ -905,20 +905,20 @@ function buildUpstreamRequest({ requestBody, promptService, memoryContext, logge
 }
 
 async function synchronizeConversationForRequest({ conversationStore, requestBody, logger }) {
-  if (!conversationStore || !requestBody?.conversationId) {
+  if (!conversationStore || !requestBody?.chatId) {
     return;
   }
 
   try {
     conversationStore.replaceConversationMessagesFromClient({
-      conversationId: requestBody.conversationId,
+      conversationId: requestBody.chatId,
       messages: requestBody.messages,
     });
   } catch (error) {
     logger.warn(
       {
         err: error,
-        conversationId: requestBody.conversationId,
+        conversationId: requestBody.chatId,
       },
       "Failed to mirror client conversation history before upstream request"
     );

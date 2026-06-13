@@ -44,6 +44,7 @@ test("createConfig parses optional settings and defaults", () => {
   assert.equal(config.memory.contextMaxTokens, 1200);
   assert.equal(config.memory.retrievalBudgetMs, 180);
   assert.equal(config.memory.retrievalTimeoutMs, 200);
+  assert.equal(config.memory.retrievalWindowMs, 200);
   assert.equal(config.openai.defaultModel, null);
   assert.equal(config.openai.allowModelOverride, true);
   assert.equal(config.memory.extractEvery, 4);
@@ -263,6 +264,20 @@ test("createConfig parses memory runtime mode and tool write whitelist", () => {
   assert.equal(config.memory.zepEnabled, false);
   assert.equal(config.memory.redisEnabled, true);
   assert.deepEqual(config.tools.memoryWriteWhitelist, ["add_memory", "admin_memory_write"]);
+});
+
+test("createConfig uses the larger of retrieval budget and retrieval timeout for retrieval window", () => {
+  const config = createConfig({
+    OPENAI_API_KEY: "openai-key",
+    SAGE_API_KEY: "sage-key",
+    BRAVE_API_KEY: "brave-key",
+    SAGE_MEMORY_RETRIEVAL_BUDGET_MS: "180",
+    SAGE_MEMORY_RETRIEVAL_TIMEOUT_MS: "1200",
+  });
+
+  assert.equal(config.memory.retrievalBudgetMs, 180);
+  assert.equal(config.memory.retrievalTimeoutMs, 1200);
+  assert.equal(config.memory.retrievalWindowMs, 1200);
 });
 
 test("createConfig rejects invalid memory extraction history multiplier", () => {

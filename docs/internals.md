@@ -93,7 +93,7 @@ src/
 - Normalizes:
   - `messages` through `normalizeMessages`
   - `stream` to boolean
-  - `conversation_id`/`conversationId` to `conversationId`
+  - `X-OpenWebUI-Chat-Id`/`X-Conversation-ID` headers to internal `conversationId`
   - passthrough upstream options
   - `tools` and `tool_choice`
   - `lastUserMessage` for memory recall

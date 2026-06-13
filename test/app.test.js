@@ -9,6 +9,10 @@ const logger = pino({ level: "silent" });
 const authHeader = {
   authorization: "Bearer test-sage-key",
 };
+const authWithChatHeader = {
+  ...authHeader,
+  "x-openwebui-chat-id": "conv-1",
+};
 
 function createTestConfig() {
   return {
@@ -106,10 +110,9 @@ test("POST /v1/chat/completions accepts tools for non-stream requests", async ()
   const response = await app.inject({
     method: "POST",
     url: "/v1/chat/completions",
-    headers: authHeader,
+    headers: authWithChatHeader,
     payload: {
       model: "gpt-5.2",
-      conversation_id: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
       tools: [{ type: "function", function: { name: "get_memories", parameters: { type: "object" } } }],
     },
@@ -124,10 +127,9 @@ test("POST /v1/chat/completions accepts tools when stream=true", async () => {
   const response = await app.inject({
     method: "POST",
     url: "/v1/chat/completions",
-    headers: authHeader,
+    headers: authWithChatHeader,
     payload: {
       model: "gpt-5.2",
-      conversation_id: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
       stream: true,
       tools: [{ type: "function", function: { name: "get_memories" } }],
@@ -145,10 +147,9 @@ test("POST /v1/chat/completions returns non-stream completions", async () => {
   const response = await app.inject({
     method: "POST",
     url: "/v1/chat/completions",
-    headers: authHeader,
+    headers: authWithChatHeader,
     payload: {
       model: "gpt-5.2",
-      conversation_id: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
     },
   });
@@ -164,10 +165,9 @@ test("POST /v1/chat/completions streams SSE chunks", async () => {
   const response = await app.inject({
     method: "POST",
     url: "/v1/chat/completions",
-    headers: authHeader,
+    headers: authWithChatHeader,
     payload: {
       model: "gpt-5.2",
-      conversation_id: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
       stream: true,
     },
@@ -198,10 +198,9 @@ test("POST /v1/chat/completions does not trigger route-level memory ingestion af
   const response = await app.inject({
     method: "POST",
     url: "/v1/chat/completions",
-    headers: authHeader,
+    headers: authWithChatHeader,
     payload: {
       model: "gpt-5.2",
-      conversation_id: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
       stream: true,
     },
@@ -231,10 +230,9 @@ test("POST /v1/chat/completions maps service errors into OpenAI error payloads",
   const response = await app.inject({
     method: "POST",
     url: "/v1/chat/completions",
-    headers: authHeader,
+    headers: authWithChatHeader,
     payload: {
       model: "gpt-5.2",
-      conversation_id: "conv-1",
       messages: [{ role: "user", content: "Hello" }],
     },
   });
@@ -244,7 +242,7 @@ test("POST /v1/chat/completions maps service errors into OpenAI error payloads",
   await app.close();
 });
 
-test("POST /v1/chat/completions requires conversation id", async () => {
+test("POST /v1/chat/completions requires chat id headers", async () => {
   const app = await createTestApp();
   const response = await app.inject({
     method: "POST",
@@ -257,19 +255,21 @@ test("POST /v1/chat/completions requires conversation id", async () => {
   });
 
   assert.equal(response.statusCode, 400);
-  assert.equal(response.json().error.param, "conversation_id");
+  assert.equal(response.json().error.param, "x-openwebui-chat-id");
   await app.close();
 });
 
-test("POST /v1/chat/completions accepts conversationId alias", async () => {
+test("POST /v1/chat/completions accepts X-OpenWebUI-Chat-Id header", async () => {
   const app = await createTestApp();
   const response = await app.inject({
     method: "POST",
     url: "/v1/chat/completions",
-    headers: authHeader,
+    headers: {
+      ...authHeader,
+      "x-openwebui-chat-id": "conv-chat-id",
+    },
     payload: {
       model: "gpt-5.2",
-      conversationId: "conv-camel",
       messages: [{ role: "user", content: "Hello" }],
     },
   });
@@ -278,21 +278,42 @@ test("POST /v1/chat/completions accepts conversationId alias", async () => {
   await app.close();
 });
 
-test("POST /v1/chat/completions rejects mismatched conversation id aliases", async () => {
+test("POST /v1/chat/completions accepts X-Conversation-ID header", async () => {
   const app = await createTestApp();
   const response = await app.inject({
     method: "POST",
     url: "/v1/chat/completions",
-    headers: authHeader,
+    headers: {
+      ...authHeader,
+      "x-conversation-id": "conv-conversation-header",
+    },
     payload: {
       model: "gpt-5.2",
-      conversation_id: "conv-a",
-      conversationId: "conv-b",
+      messages: [{ role: "user", content: "Hello" }],
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  await app.close();
+});
+
+test("POST /v1/chat/completions rejects mismatched chat id headers", async () => {
+  const app = await createTestApp();
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/chat/completions",
+    headers: {
+      ...authHeader,
+      "x-openwebui-chat-id": "conv-1",
+      "x-conversation-id": "conv-2",
+    },
+    payload: {
+      model: "gpt-5.2",
       messages: [{ role: "user", content: "Hello" }],
     },
   });
 
   assert.equal(response.statusCode, 400);
-  assert.equal(response.json().error.param, "conversation_id");
+  assert.equal(response.json().error.param, "x-openwebui-chat-id");
   await app.close();
 });

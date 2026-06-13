@@ -16,7 +16,7 @@ const PASSTHROUGH_FIELDS = [
   "user",
 ];
 
-function validateChatCompletionsRequest(body, { config } = {}) {
+function validateChatCompletionsRequest(body, { config, headers } = {}) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new AppError({
       statusCode: 400,
@@ -59,13 +59,13 @@ function validateChatCompletionsRequest(body, { config } = {}) {
   }
   const tools = normalizeTools(body.tools);
   const toolChoice = normalizeToolChoice(body.tool_choice);
-  const conversationId = normalizeConversationId(body);
+  const chatId = normalizeChatId(headers);
 
   return {
     model,
     messages,
     stream,
-    conversationId,
+    chatId,
     user: normalizeUserIdentifier(body.user),
     upstreamOptions,
     tools,
@@ -208,32 +208,41 @@ function normalizeToolChoice(value) {
   };
 }
 
-function normalizeConversationId(body) {
-  const snake = typeof body.conversation_id === "string" ? body.conversation_id.trim() : "";
-  const camel = typeof body.conversationId === "string" ? body.conversationId.trim() : "";
+function normalizeChatId(headers) {
+  const openWebUiChatId =
+    typeof headers?.["x-openwebui-chat-id"] === "string"
+      ? headers["x-openwebui-chat-id"].trim()
+      : "";
+  const conversationIdHeader =
+    typeof headers?.["x-conversation-id"] === "string"
+      ? headers["x-conversation-id"].trim()
+      : "";
 
-  if (snake && camel && snake !== camel) {
+  if (openWebUiChatId && conversationIdHeader && openWebUiChatId !== conversationIdHeader) {
     throw new AppError({
       statusCode: 400,
       code: "invalid_request_error",
       type: "invalid_request_error",
-      message: "conversation_id and conversationId must match when both are provided.",
-      param: "conversation_id",
+      message:
+        "X-OpenWebUI-Chat-Id and X-Conversation-ID headers must match when both are provided.",
+      param: "x-openwebui-chat-id",
     });
   }
 
-  const conversationId = snake || camel;
-  if (!conversationId) {
+  const chatId = openWebUiChatId || conversationIdHeader;
+
+  if (!chatId) {
     throw new AppError({
       statusCode: 400,
       code: "invalid_request_error",
       type: "invalid_request_error",
-      message: "conversation_id (or conversationId) is required.",
-      param: "conversation_id",
+      message:
+        "One of X-OpenWebUI-Chat-Id or X-Conversation-ID headers is required.",
+      param: "x-openwebui-chat-id",
     });
   }
 
-  return conversationId;
+  return chatId;
 }
 
 function normalizeReasoningControls(upstreamOptions) {

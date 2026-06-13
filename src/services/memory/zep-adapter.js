@@ -49,19 +49,31 @@ function createZepAdapter({ config, logger }) {
     if (!enabled || !client || !query) {
       return [];
     }
-    const response = await client.graph.search({
-      userId: scopeKey,
-      query,
-      limit,
-    });
-    const edges = Array.isArray(response?.edges) ? response.edges : [];
-    return edges.map((edge) => ({
-      text: edge?.fact || edge?.name || "",
-      score: Number.isFinite(edge?.score) ? edge.score : null,
-      source: "zep",
-      relation: edge?.fact_name || null,
-      metadata: edge?.attributes || null,
-    }));
+    try {
+      const response = await client.graph.search({
+        userId: scopeKey,
+        query,
+        limit,
+      });
+      const edges = Array.isArray(response?.edges) ? response.edges : [];
+      return mapSearchEdges(edges, limit);
+    } catch (error) {
+      if (isZepNotFound(error)) {
+        adapterLogger.warn(
+          {
+            statusCode: error?.statusCode,
+            scopeKey,
+          },
+          "Zep graph.search returned 404; falling back to edge.getByUserId"
+        );
+        const edgeLimit = Math.max(Number(limit) || 20, 20);
+        const fallbackEdges = await client.graph.edge.getByUserId(scopeKey, {
+          limit: edgeLimit,
+        });
+        return mapFallbackEdges(fallbackEdges, query, edgeLimit);
+      }
+      throw error;
+    }
   }
 
   async function ping() {
@@ -86,6 +98,53 @@ function normalizeFactName(name) {
     .replace(/[^A-Za-z0-9]+/g, "_")
     .toUpperCase();
   return normalized || "RELATED_TO";
+}
+
+function isZepNotFound(error) {
+  return Number(error?.statusCode) === 404;
+}
+
+function mapSearchEdges(edges, limit) {
+  const safeEdges = Array.isArray(edges) ? edges : [];
+  return safeEdges.slice(0, Math.max(1, Number(limit) || safeEdges.length)).map((edge) => ({
+    text: edge?.fact || edge?.name || "",
+    score: Number.isFinite(edge?.score) ? edge.score : null,
+    source: "zep",
+    relation: edge?.fact_name || edge?.name || null,
+    metadata: edge?.attributes || null,
+  }));
+}
+
+function mapFallbackEdges(edges, query, limit) {
+  const safeEdges = Array.isArray(edges) ? edges : [];
+  const terms = String(query || "")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  const scored = safeEdges.map((edge) => {
+    const text = String(edge?.fact || edge?.name || "").trim();
+    if (!text) {
+      return null;
+    }
+    const haystack = text.toLowerCase();
+    const termMatches = terms.reduce(
+      (acc, term) => (haystack.includes(term) ? acc + 1 : acc),
+      0
+    );
+    const score = Number.isFinite(edge?.score)
+      ? edge.score
+      : Number((termMatches / Math.max(terms.length, 1)).toFixed(4));
+    return {
+      text,
+      score,
+      source: "zep",
+      relation: edge?.name || null,
+      metadata: edge?.attributes || null,
+    };
+  }).filter(Boolean);
+
+  scored.sort((a, b) => (b.score || 0) - (a.score || 0));
+  return scored.slice(0, Math.max(1, Number(limit) || scored.length));
 }
 
 export { createZepAdapter };

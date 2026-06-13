@@ -31,6 +31,20 @@ function createConfig(env = process.env) {
   const webEnabled = parseBoolean(env.WEB_SEARCH_ENABLED, true);
   const defaultModel = optionalString(env.SAGE_DEFAULT_MODEL);
   const allowModelOverride = parseBoolean(env.SAGE_ALLOW_MODEL_OVERRIDE, true);
+  const memoryRetrievalTimeoutMs = parsePositiveInteger(
+    env.SAGE_MEMORY_RETRIEVAL_TIMEOUT_MS,
+    200,
+    "SAGE_MEMORY_RETRIEVAL_TIMEOUT_MS"
+  );
+  const memoryRetrievalBudgetMs = parsePositiveInteger(
+    env.SAGE_MEMORY_RETRIEVAL_BUDGET_MS,
+    180,
+    "SAGE_MEMORY_RETRIEVAL_BUDGET_MS"
+  );
+  const memoryRetrievalWindowMs = Math.max(
+    memoryRetrievalBudgetMs,
+    memoryRetrievalTimeoutMs
+  );
   const memoryMode = parseEnum(
     optionalString(env.SAGE_MEMORY_MODE) || "hard",
     ["hard", "soft", "off"],
@@ -100,16 +114,9 @@ function createConfig(env = process.env) {
         1200,
         "SAGE_MEMORY_CONTEXT_MAX_TOKENS"
       ),
-      retrievalTimeoutMs: parsePositiveInteger(
-        env.SAGE_MEMORY_RETRIEVAL_TIMEOUT_MS,
-        200,
-        "SAGE_MEMORY_RETRIEVAL_TIMEOUT_MS"
-      ),
-      retrievalBudgetMs: parsePositiveInteger(
-        env.SAGE_MEMORY_RETRIEVAL_BUDGET_MS,
-        180,
-        "SAGE_MEMORY_RETRIEVAL_BUDGET_MS"
-      ),
+      retrievalTimeoutMs: memoryRetrievalTimeoutMs,
+      retrievalBudgetMs: memoryRetrievalBudgetMs,
+      retrievalWindowMs: memoryRetrievalWindowMs,
       identityCacheTtlSec: parsePositiveInteger(
         env.SAGE_MEMORY_IDENTITY_CACHE_TTL_SEC,
         300,

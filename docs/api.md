@@ -61,8 +61,8 @@ Returns upstream OpenAI models (optionally filtered by `SAGE_OPENAI_MODEL_ALLOWL
 OpenAI-compatible chat completions endpoint with Sage memory augmentation.
 
 ### Required request fields
-- `conversation_id` (string) or `conversationId` (string alias)
 - `messages` (non-empty array)
+- one header: `X-OpenWebUI-Chat-Id` or `X-Conversation-ID`
 
 `model` is required unless `SAGE_DEFAULT_MODEL` is configured.
 
@@ -81,7 +81,7 @@ The following pass through to upstream OpenAI chat completions:
 - `user`
 - `stream_options` (only passed when `stream: true`)
 
-`conversation_id`/`conversationId` is used by Sage for server-side conversation tracking and is **not** forwarded upstream.
+`X-OpenWebUI-Chat-Id`/`X-Conversation-ID` is used by Sage for server-side conversation tracking and is **not** forwarded upstream.
 
 Model selection behavior:
 - If request `model` is present, Sage uses it.
@@ -159,10 +159,10 @@ Common status/code examples:
 ```bash
 curl -sS http://localhost:8787/v1/chat/completions \
   -H "Authorization: Bearer $SAGE_API_KEY" \
+  -H "X-OpenWebUI-Chat-Id: conv-demo-1" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-5.2",
-    "conversation_id": "conv-demo-1",
     "messages": [
       {"role": "user", "content": "Summarize memory-augmented chat flow."}
     ]
@@ -176,10 +176,10 @@ const response = await fetch("http://localhost:8787/v1/chat/completions", {
   headers: {
     "Content-Type": "application/json",
     "Authorization": `Bearer ${process.env.SAGE_API_KEY}`,
+    "X-OpenWebUI-Chat-Id": "conv-demo-1",
   },
   body: JSON.stringify({
     model: "gpt-5.2",
-    conversation_id: "conv-demo-1",
     messages: [{ role: "user", content: "Summarize memory-augmented chat flow." }],
   }),
 });
@@ -192,10 +192,10 @@ console.log(data.choices?.[0]?.message?.content);
 ```bash
 curl -N http://localhost:8787/v1/chat/completions \
   -H "Authorization: Bearer $SAGE_API_KEY" \
+  -H "X-OpenWebUI-Chat-Id: conv-demo-1" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-5.2",
-    "conversation_id": "conv-demo-1",
     "stream": true,
     "messages": [
       {"role": "user", "content": "Stream a short response."}
@@ -210,10 +210,10 @@ const response = await fetch("http://localhost:8787/v1/chat/completions", {
   headers: {
     "Content-Type": "application/json",
     "Authorization": `Bearer ${process.env.SAGE_API_KEY}`,
+    "X-OpenWebUI-Chat-Id": "conv-demo-1",
   },
   body: JSON.stringify({
     model: "gpt-5.2",
-    conversation_id: "conv-demo-1",
     stream: true,
     messages: [{ role: "user", content: "Stream a short response." }],
   }),
@@ -233,10 +233,10 @@ while (true) {
 ```bash
 curl -sS http://localhost:8787/v1/chat/completions \
   -H "Authorization: Bearer $SAGE_API_KEY" \
+  -H "X-OpenWebUI-Chat-Id: conv-demo-1" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-5.2",
-    "conversation_id": "conv-demo-1",
     "messages": [
       {"role": "user", "content": "What memories do you have about coffee preferences?"}
     ],
@@ -311,10 +311,10 @@ const response = await fetch("http://localhost:8787/v1/chat/completions", {
   headers: {
     "Content-Type": "application/json",
     "Authorization": `Bearer ${process.env.SAGE_API_KEY}`,
+    "X-OpenWebUI-Chat-Id": "conv-demo-1",
   },
   body: JSON.stringify({
     model: "gpt-5.2",
-    conversation_id: "conv-demo-1",
     messages: [{ role: "user", content: "Use get_memories for coffee preferences." }],
     tools: [
       {

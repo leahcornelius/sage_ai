@@ -49,7 +49,7 @@ Sage startup path in `src/index.js`:
 
 ## A) Non-stream chat completion
 1. Client sends `POST /v1/chat/completions`.
-2. Route validates request body (including `conversation_id`/`conversationId`) and extracts normalized fields.
+2. Route validates request body and required chat-id headers (`X-OpenWebUI-Chat-Id` or `X-Conversation-ID`) and extracts normalized fields.
 3. `chat-service` verifies model is available.
 4. `memory-service` calls the memory controller retrieval pipeline:
    - identity context cache lookup
@@ -98,6 +98,7 @@ Sage startup path in `src/index.js`:
    - Facts are persisted to Mnemosyne, propagated to Zep, and Redis scope cache is invalidated.
 2. **Retrieval phase (`retrieveContext`)**
    - Enforced global budget (`SAGE_MEMORY_RETRIEVAL_BUDGET_MS`) and per-adapter timeouts.
+   - Effective retrieval deadline is `max(SAGE_MEMORY_RETRIEVAL_BUDGET_MS, SAGE_MEMORY_RETRIEVAL_TIMEOUT_MS)`.
    - Identity context (cached separately) is loaded first.
    - Query context uses Zep + Mnemosyne in parallel, with partial results allowed on timeout.
    - Circuit breakers temporarily skip repeatedly failing backends.
