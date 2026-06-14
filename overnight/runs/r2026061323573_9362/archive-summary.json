@@ -1,0 +1,148 @@
+{
+  "iterations": 125,
+  "keeps": 5,
+  "reverts": 115,
+  "gridConfigs": 90,
+  "top": [
+    {
+      "config": {
+        "semanticTopK": 20,
+        "episodicTopK": 16,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 4000
+      },
+      "utility": 0.6658884615384616,
+      "meanRecall": 0.7692307692307693,
+      "meanTokens": 2066.846153846154,
+      "meanMrr": 0,
+      "decision": "keep",
+      "iteration": 17
+    },
+    {
+      "config": {
+        "semanticTopK": 21,
+        "episodicTopK": 16,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 4000
+      },
+      "utility": 0.6658884615384616,
+      "meanRecall": 0.7692307692307693,
+      "meanTokens": 2066.846153846154,
+      "meanMrr": 0,
+      "decision": "revert",
+      "iteration": 19
+    },
+    {
+      "config": {
+        "semanticTopK": 20,
+        "episodicTopK": 16,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 4000
+      },
+      "utility": 0.6658884615384616,
+      "meanRecall": 0.7692307692307693,
+      "meanTokens": 2066.846153846154,
+      "meanMrr": 0,
+      "decision": "revert",
+      "iteration": 20
+    },
+    {
+      "config": {
+        "semanticTopK": 20,
+        "episodicTopK": 16,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 4000
+      },
+      "utility": 0.6658884615384616,
+      "meanRecall": 0.7692307692307693,
+      "meanTokens": 2066.846153846154,
+      "meanMrr": 0,
+      "decision": "revert",
+      "iteration": 21
+    },
+    {
+      "config": {
+        "semanticTopK": 22,
+        "episodicTopK": 16,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 4000
+      },
+      "utility": 0.6658884615384616,
+      "meanRecall": 0.7692307692307693,
+      "meanTokens": 2066.846153846154,
+      "meanMrr": 0,
+      "decision": "revert",
+      "iteration": 25
+    },
+    {
+      "config": {
+        "semanticTopK": 24,
+        "episodicTopK": 16,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 4000
+      },
+      "utility": 0.6657865384615385,
+      "meanRecall": 0.7692307692307693,
+      "meanTokens": 2068.8846153846152,
+      "meanMrr": 0,
+      "decision": "revert",
+      "iteration": 26
+    },
+    {
+      "config": {
+        "semanticTopK": 20,
+        "episodicTopK": 16,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 3950
+      },
+      "utility": 0.6637038461538463,
+      "meanRecall": 0.7692307692307693,
+      "meanTokens": 2110.5384615384614,
+      "meanMrr": 0,
+      "decision": "revert",
+      "iteration": 28
+    },
+    {
+      "config": {
+        "semanticTopK": 21,
+        "episodicTopK": 16,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 4000
+      },
+      "utility": 0.662525,
+      "meanRecall": 0.7692307692307693,
+      "meanTokens": 2134.1153846153848,
+      "meanMrr": 0,
+      "decision": "revert",
+      "iteration": 54
+    },
+    {
+      "config": {
+        "semanticTopK": 20,
+        "episodicTopK": 16,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 4000
+      },
+      "utility": 0.662525,
+      "meanRecall": 0.7692307692307693,
+      "meanTokens": 2134.1153846153848,
+      "meanMrr": 0,
+      "decision": "revert",
+      "iteration": 55
+    },
+    {
+      "config": {
+        "semanticTopK": 20,
+        "episodicTopK": 16,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 3850
+      },
+      "utility": 0.662525,
+      "meanRecall": 0.7692307692307693,
+      "meanTokens": 2134.1153846153848,
+      "meanMrr": 0,
+      "decision": "revert",
+      "iteration": 56
+    }
+  ]
+}
