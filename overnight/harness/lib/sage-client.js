@@ -126,6 +126,24 @@ class QdrantClient {
       throw error;
     }
   }
+
+  // Raw vector search mirroring mnemosy-ai's QdrantDB.search (always filters
+  // deleted=false; applies a minScore floor; with_payload). `extraMust` adds
+  // payload-match clauses, e.g. [{ key: "metadata.scopeKey", match: { value } }].
+  // Used measurement-only by Gate 1b's B_dbsearch_unscoped control probe (no
+  // extraMust = raw unscoped search) to attribute the scoped-vs-unscoped gap.
+  async search(name, vector, { limit = 5, minScore = 0.3, extraMust = [] } = {}) {
+    const must = [{ key: "deleted", match: { value: false } }, ...extraMust];
+    const res = await fetchJson(`${this.url}/collections/${name}/points/search`, {
+      method: "POST",
+      body: { vector, limit, filter: { must }, with_payload: true },
+      timeoutMs: this.timeoutMs,
+    });
+    const rows = res?.result || [];
+    return rows
+      .filter((r) => r.score >= minScore)
+      .map((r) => ({ text: r.payload?.text || r.payload?.content || "", score: r.score, payload: r.payload || {} }));
+  }
 }
 
 export { SageClient, QdrantClient, HttpError, fetchJson };

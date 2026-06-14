@@ -125,34 +125,36 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     if (!enabled || !query) {
       return [];
     }
-    // mnemosy-ai's recall() honors `limit` (defaults to 5) and ignores `topK`,
-    // so passing only `topK` left semanticTopK inert. Pass `limit` so the
-    // semanticTopK read-side knob actually controls the semantic result count.
+    // scopeFilter selects between two semantic-recall paths that share the same
+    // embedder/vector space, so the only difference is WHERE the search happens:
     //
-    // scopeFilter (default OFF): mnemosy-ai's recall() searches the whole shared
-    // collection with no scope param, so a different scope's lookalike can
-    // outrank the in-scope gold (cross-scope bleed). When enabled, over-fetch and
-    // keep only items tagged with the requesting scope, so semanticTopK in-scope
-    // hits still survive. The `[scope:<scopeKey>]` tag lives in the raw stored
-    // text and is stripped by cleanStoredText, so we must filter BEFORE mapping.
-    const limit = scopeFilter ? Math.min(200, Math.max(topK, 1) * 8) : topK;
-    const recalled = await mnemosyneClient.recall({
-      query,
-      limit,
-      topK,
-    });
-    let results = Array.isArray(recalled) ? recalled : [];
+    //   OFF (default): mnemosy-ai's recall() searches the whole shared collection
+    //     with no scope param, so a different scope's lookalike can outrank the
+    //     in-scope gold (cross-scope bleed). recall() honors `limit` (not `topK`),
+    //     so pass limit=topK to make the semanticTopK knob control the count.
+    //
+    //   ON: search the Qdrant collection DIRECTLY, restricted to in-scope points
+    //     via a payload filter on metadata.scopeKey (where storeEpisodic puts the
+    //     scope — embedding hygiene moved it out of the embedded text). Within a
+    //     scope the in-scope gold ranks high; globally it is swamped by ~similar
+    //     cross-scope lookalikes that a post-filter could never recover (they keep
+    //     the gold out of mnemosy-ai's candidate set entirely). mnemosy-ai exposes
+    //     its own QdrantDB + embedder, so this reuses Sage's embedder (query and
+    //     stored vectors share a space) with NO extra dependency. Raw vector search:
+    //     no rerank/dedup/query-rewrite; minScore stays recall's 0.3 default
+    //     (within-scope cosines clear it). Mirrors mnemosy-ai's own search(query,
+    //     filters) helper, but limited to semanticTopK.
+    let results;
     if (scopeFilter && scopeKey) {
-      const scopeTag = `[scope:${scopeKey}]`;
-      results = results
-        .filter((memory) => {
-          const entry = memory?.entry || {};
-          // Scope now lives in the metadata payload (embedding hygiene moved the
-          // structural tags out of the embedded text). Fall back to the legacy
-          // in-text tag for any older/mixed records.
-          return entry.metadata?.scopeKey === scopeKey || String(entry.text || "").includes(scopeTag);
-        })
-        .slice(0, topK);
+      const vector = await mnemosyneClient.embeddings.embed(query);
+      const collection = mnemosyneClient.config.sharedCollection;
+      const hits = await mnemosyneClient.db.search(collection, vector, topK, 0.3, {
+        "metadata.scopeKey": scopeKey,
+      });
+      results = Array.isArray(hits) ? hits : [];
+    } else {
+      const recalled = await mnemosyneClient.recall({ query, limit: topK, topK });
+      results = Array.isArray(recalled) ? recalled : [];
     }
     return results.map((memory) => {
       const entry = memory?.entry || {};
