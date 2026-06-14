@@ -3,3 +3,11 @@ node_modules/
 conversations/*
 logs/
 .webui_secret_key
+
+# Overnight retrieval-loop run artifacts: keep secrets and bulky per-iteration
+# logs out of git. Compact summaries / reports are committed explicitly.
+overnight/runs/*/logs/
+overnight/runs/*/*.log
+overnight/runs/*/bench-credential.json
+overnight/runs/*/*.pid
+overnight/runs/**/raw/

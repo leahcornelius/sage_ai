@@ -223,6 +223,12 @@ function createMemoryService({
     });
   }
 
+  async function flushQueryCache() {
+    if (typeof controller.flushQueryCache === "function") {
+      await controller.flushQueryCache();
+    }
+  }
+
   return {
     assertReady,
     close,
@@ -234,6 +240,7 @@ function createMemoryService({
     getMemoriesForTool,
     addMemoryFromTool,
     getSubsystemHealth,
+    flushQueryCache,
   };
 }
 

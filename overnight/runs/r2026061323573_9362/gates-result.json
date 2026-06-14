@@ -1,0 +1,51 @@
+{
+  "passed": true,
+  "gate1": {
+    "name": "Gate1",
+    "pass": true,
+    "evidence": {
+      "baselineUtility": 0.11117692307692309,
+      "meanRecall": 0.15384615384615385,
+      "meanTokens": 853.3846153846154,
+      "meanMrr": 0,
+      "deterministic": false,
+      "noiseBand": 0.0014923076923077094,
+      "keepThreshold": 0.0014933076923077093,
+      "cacheHits": 0,
+      "recallSpread": {
+        "min": 0,
+        "max": 1
+      }
+    }
+  },
+  "gate2": {
+    "name": "Gate2",
+    "pass": true,
+    "evidence": {
+      "lowK": {
+        "len": 1,
+        "tokens": 193,
+        "goldPresent": false
+      },
+      "highK": {
+        "len": 10,
+        "tokens": 1619,
+        "goldPresent": false
+      },
+      "lenChanged": true,
+      "tokChanged": true,
+      "recallChanged": false
+    }
+  },
+  "gate3": {
+    "name": "Gate3",
+    "pass": true,
+    "evidence": {
+      "regressiveUtility": -0.0025115384615384618,
+      "strongUtility": 0.40854615384615384,
+      "revertDecision": "revert",
+      "keepDecision": "keep",
+      "keepThreshold": 0.0014933076923077093
+    }
+  }
+}

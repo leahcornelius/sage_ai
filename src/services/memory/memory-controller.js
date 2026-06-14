@@ -625,12 +625,19 @@ function createMemoryController({
     return next;
   }
 
+  async function flushQueryCache() {
+    if (typeof redisCache?.flushQueryCache === "function") {
+      await redisCache.flushQueryCache();
+    }
+  }
+
   return {
     retrieveContext,
     processMessage,
     getSubsystemHealth,
     assertReady,
     close,
+    flushQueryCache,
     normalizeQueryForCache,
     resolveScopeKey,
     createMessageId,
