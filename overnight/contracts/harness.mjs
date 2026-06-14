@@ -90,6 +90,23 @@ async function countLive(collection) {
   return countByDeleted(collection, false);
 }
 
+// mnemosy-ai's db.store sends `wait:true` in the request BODY, but Qdrant only honours
+// `wait` as a QUERY param — so writes are applied asynchronously and reads are
+// eventually-consistent (a freshly-written point can be invisible to count/scroll/search
+// for tens of ms). This is a dependency quirk, not Sage behaviour; tests call settle()
+// to wait (bounded) for the expected number of live points to become visible before
+// asserting, keeping the suite deterministic.
+async function settle(collection, expected, { timeoutMs = 8000, intervalMs = 50 } = {}) {
+  assertContractCollection(collection);
+  const deadline = Date.now() + timeoutMs;
+  let live = await countLive(collection);
+  while (live !== expected && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, intervalMs));
+    live = await countLive(collection);
+  }
+  return live;
+}
+
 async function countDeleted(collection) {
   return countByDeleted(collection, true);
 }
@@ -213,6 +230,7 @@ export {
   makeMemoryConfig,
   countLive,
   countDeleted,
+  settle,
   scrollPoints,
   liveScopeKeys,
   dropCollections,
