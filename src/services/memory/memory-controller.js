@@ -215,7 +215,17 @@ function createMemoryController({
       maxTokens: config.memory.contextMaxTokens,
     });
 
-    const partial = !graphResult.ok || !semanticResult.ok || !episodicResult.ok || Date.now() > deadline;
+    // `partial` reflects an ENABLED memory source failing — NOT a deliberately-disabled
+    // adapter being absent. runAdapter returns { skipped:true, reason:"disabled" } for a
+    // config-disabled adapter; with Zep off (the default) treating that as partial made
+    // every result partial and the flag meaningless. A tripped circuit / timeout / error
+    // on an enabled source (reason !== "disabled") still counts as degraded.
+    const degraded = (result) => !result.ok && result.reason !== "disabled";
+    const partial =
+      degraded(graphResult) ||
+      degraded(semanticResult) ||
+      degraded(episodicResult) ||
+      Date.now() > deadline;
     const budgetExceeded = Date.now() > deadline;
 
     if (contextBlock) {
