@@ -58,20 +58,47 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     // cosine is driven by content while scope/turn/etc. remain available — e.g. for
     // the scope filter, which reads metadata.scopeKey. This is a principled,
     // unconditional production fix (no flag): content should drive retrieval.
-    const memoryId = await mnemosyneClient.store({
-      text: messageText,
-      category: "episodic",
-      eventTime: timestamp,
-      metadata: {
-        memoryClass: "episodic",
-        scopeKey,
-        conversationId,
-        role,
-        turnIndex,
-        messageId,
-        timestamp,
-      },
-    });
+    const metadata = {
+      memoryClass: "episodic",
+      scopeKey,
+      conversationId,
+      role,
+      turnIndex,
+      messageId,
+      timestamp,
+    };
+
+    let memoryId;
+    if (config.memory.episodicRawStore) {
+      // Raw episodic store (default OFF; benchmark-only). mnemosyneClient.store()
+      // routes through fullStorePipeline, which runs an UNCONDITIONAL 0.85-cosine
+      // dedup/merge (no config flag): on a hit it keeps the LATER turn's text,
+      // soft-deletes the earlier point, and overwrites its metadata (dropping
+      // scopeKey). For intentionally-similar distinct memories that collapses the
+      // store and — because earlier-planted facts are the merge losers — deletes
+      // them before any retrieval runs. Episodic turns are raw events that must
+      // never be merged with each other, so write the point directly via the raw
+      // QdrantDB handle mnemosy-ai exposes, embedding the clean content with the
+      // same embedder. classification "public" -> the shared collection (where
+      // recall/searchSemantic look); memoryType "semantic" matches how factual
+      // turns classify, keeping the unfiltered recall arm comparable.
+      const vector = await mnemosyneClient.embeddings.embed(messageText);
+      const cell = await mnemosyneClient.db.store(messageText, vector, {
+        memoryType: "semantic",
+        classification: "public",
+        scope: "public",
+        eventTime: timestamp,
+        metadata,
+      });
+      memoryId = cell?.id || null;
+    } else {
+      memoryId = await mnemosyneClient.store({
+        text: messageText,
+        category: "episodic",
+        eventTime: timestamp,
+        metadata,
+      });
+    }
     seenMessageIds.add(messageId);
     rememberEpisodic(scopeKey, {
       text: messageText,
