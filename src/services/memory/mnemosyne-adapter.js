@@ -68,37 +68,36 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
       timestamp,
     };
 
-    let memoryId;
-    if (config.memory.episodicRawStore) {
-      // Raw episodic store (default OFF; benchmark-only). mnemosyneClient.store()
-      // routes through fullStorePipeline, which runs an UNCONDITIONAL 0.85-cosine
-      // dedup/merge (no config flag): on a hit it keeps the LATER turn's text,
-      // soft-deletes the earlier point, and overwrites its metadata (dropping
-      // scopeKey). For intentionally-similar distinct memories that collapses the
-      // store and — because earlier-planted facts are the merge losers — deletes
-      // them before any retrieval runs. Episodic turns are raw events that must
-      // never be merged with each other, so write the point directly via the raw
-      // QdrantDB handle mnemosy-ai exposes, embedding the clean content with the
-      // same embedder. classification "public" -> the shared collection (where
-      // recall/searchSemantic look); memoryType "semantic" matches how factual
-      // turns classify, keeping the unfiltered recall arm comparable.
-      const vector = await mnemosyneClient.embeddings.embed(messageText);
-      const cell = await mnemosyneClient.db.store(messageText, vector, {
-        memoryType: "semantic",
-        classification: "public",
-        scope: "public",
-        eventTime: timestamp,
-        metadata,
-      });
-      memoryId = cell?.id || null;
-    } else {
-      memoryId = await mnemosyneClient.store({
-        text: messageText,
-        category: "episodic",
-        eventTime: timestamp,
-        metadata,
-      });
-    }
+    // Episodic turns are raw conversation events and must NEVER be semantically
+    // merged with each other, so write the point DIRECTLY via mnemosy-ai's raw
+    // QdrantDB handle (db.store), unconditionally. This is the proper fix for the
+    // Experiment-3 merge bug (formerly behind the bench-only `episodicRawStore`
+    // flag, now the only path).
+    //
+    // mnemosyneClient.store() routes through fullStorePipeline, which runs an
+    // UNCONDITIONAL 0.85/0.92-cosine dedup/merge with no off switch (mnemosy-ai
+    // dist/index.js:186-247): on a hit it keeps the LATER turn's text, soft-deletes
+    // the earlier point, and overwrites its metadata (dropping scopeKey). The bury
+    // mechanic plants gold early, so the gold is the merge loser — soft-deleted
+    // before any retrieval runs. For N intentionally-similar distinct turns the
+    // store collapses to far fewer live points. The raw path stores every turn as a
+    // distinct live point and preserves metadata.scopeKey.
+    //
+    // KNOWN CONSEQUENCE (intentional, documented in MEMORY_CONTRACTS.md): the raw
+    // path bypasses fullStorePipeline's bm25Index.addDocument (dist/index.js:293),
+    // so raw-stored episodic points are VECTOR-ONLY — absent from the in-process
+    // BM25 lexical index (which is private to mnemosy-ai and only re-bootstrapped
+    // from Qdrant at client startup). Restoring episodic BM25 is a deferred,
+    // harness-level spike (re-bootstrap post-populate), not done here.
+    const vector = await mnemosyneClient.embeddings.embed(messageText);
+    const cell = await mnemosyneClient.db.store(messageText, vector, {
+      memoryType: "semantic",
+      classification: "public",
+      scope: "public",
+      eventTime: timestamp,
+      metadata,
+    });
+    const memoryId = cell?.id || null;
     seenMessageIds.add(messageId);
     rememberEpisodic(scopeKey, {
       text: messageText,

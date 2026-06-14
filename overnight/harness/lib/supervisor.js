@@ -36,10 +36,9 @@ function benchEnv({ collection, port, benchKey, qdrantUrl, cacheUrl, graphUrl })
     SAGE_MEMORY_MODE: "soft",
     // P1 scope-filter starts OFF; the loop toggles it live via /admin/memory-config.
     SAGE_MEMORY_SCOPE_FILTER_ENABLED: "false",
-    // Benchmark-only: write episodic turns directly to Qdrant, bypassing mnemosy-ai's
-    // unconditional 0.85 dedup/merge which otherwise soft-deletes the (early-planted)
-    // gold facts and strips scopeKey before any retrieval runs. Production stays OFF.
-    SAGE_MEMORY_EPISODIC_RAW_STORE: "true",
+    // NOTE: episodic raw-store is no longer a flag — Experiment 4 made storeEpisodic
+    // always bypass mnemosy-ai's dedup/merge (the correct behaviour for raw events).
+    // The former SAGE_MEMORY_EPISODIC_RAW_STORE=true setting was removed (now a no-op).
     SAGE_HOST: "127.0.0.1",
     SAGE_PORT: String(port),
     SAGE_ADMIN_ENABLED: "true",
