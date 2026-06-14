@@ -49,21 +49,28 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
       return null;
     }
 
-    const episodicText = [
-      `[scope:${scopeKey}]`,
-      `[conversation:${conversationId}]`,
-      `[role:${role}]`,
-      `[turn:${turnIndex}]`,
-      `[message_id:${messageId}]`,
-      `[message_id_tag:message_id:${messageId}]`,
-      `[timestamp:${timestamp}]`,
-      messageText,
-    ].join(" ");
-
+    // Embedding hygiene: embed the CLEAN message content, not a boilerplate-laden
+    // string. Previously the stored text prepended ~60-80 tokens of structural tags
+    // ([scope][conversation][role][turn][message_id:HASH][timestamp]) which dominated
+    // the semantic vector and made content-based recall ineffective (the durable
+    // semantic channel could not surface a specific fact among similar ones). The
+    // structural fields now live in `metadata` (a Qdrant payload, NOT embedded) so the
+    // cosine is driven by content while scope/turn/etc. remain available — e.g. for
+    // the scope filter, which reads metadata.scopeKey. This is a principled,
+    // unconditional production fix (no flag): content should drive retrieval.
     const memoryId = await mnemosyneClient.store({
-      text: episodicText,
+      text: messageText,
       category: "episodic",
       eventTime: timestamp,
+      metadata: {
+        memoryClass: "episodic",
+        scopeKey,
+        conversationId,
+        role,
+        turnIndex,
+        messageId,
+        timestamp,
+      },
     });
     seenMessageIds.add(messageId);
     rememberEpisodic(scopeKey, {
@@ -114,19 +121,40 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     return results;
   }
 
-  async function searchSemantic({ scopeKey, query, topK }) {
+  async function searchSemantic({ scopeKey, query, topK, scopeFilter = false }) {
     if (!enabled || !query) {
       return [];
     }
     // mnemosy-ai's recall() honors `limit` (defaults to 5) and ignores `topK`,
     // so passing only `topK` left semanticTopK inert. Pass `limit` so the
     // semanticTopK read-side knob actually controls the semantic result count.
+    //
+    // scopeFilter (default OFF): mnemosy-ai's recall() searches the whole shared
+    // collection with no scope param, so a different scope's lookalike can
+    // outrank the in-scope gold (cross-scope bleed). When enabled, over-fetch and
+    // keep only items tagged with the requesting scope, so semanticTopK in-scope
+    // hits still survive. The `[scope:<scopeKey>]` tag lives in the raw stored
+    // text and is stripped by cleanStoredText, so we must filter BEFORE mapping.
+    const limit = scopeFilter ? Math.min(200, Math.max(topK, 1) * 8) : topK;
     const recalled = await mnemosyneClient.recall({
       query,
-      limit: topK,
+      limit,
       topK,
     });
-    return (Array.isArray(recalled) ? recalled : []).map((memory) => {
+    let results = Array.isArray(recalled) ? recalled : [];
+    if (scopeFilter && scopeKey) {
+      const scopeTag = `[scope:${scopeKey}]`;
+      results = results
+        .filter((memory) => {
+          const entry = memory?.entry || {};
+          // Scope now lives in the metadata payload (embedding hygiene moved the
+          // structural tags out of the embedded text). Fall back to the legacy
+          // in-text tag for any older/mixed records.
+          return entry.metadata?.scopeKey === scopeKey || String(entry.text || "").includes(scopeTag);
+        })
+        .slice(0, topK);
+    }
+    return results.map((memory) => {
       const entry = memory?.entry || {};
       return {
         text: cleanStoredText(entry.text),

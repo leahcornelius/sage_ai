@@ -119,6 +119,10 @@ function createConfig(env = process.env) {
         1200,
         "SAGE_MEMORY_CONTEXT_MAX_TOKENS"
       ),
+      // When enabled, semantic recall is restricted to the requesting scope
+      // (mnemosy-ai's recall() searches the whole shared collection unfiltered).
+      // Default OFF so merging changes nothing until deliberately enabled.
+      scopeFilter: parseBoolean(env.SAGE_MEMORY_SCOPE_FILTER_ENABLED, false),
       retrievalTimeoutMs: memoryRetrievalTimeoutMs,
       retrievalBudgetMs: memoryRetrievalBudgetMs,
       retrievalWindowMs: memoryRetrievalWindowMs,

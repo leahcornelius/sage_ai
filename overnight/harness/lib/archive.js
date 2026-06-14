@@ -40,9 +40,10 @@ function readJsonl(filePath) {
   }
 }
 
-// Canonical identity of a knob config (for dedupe / archive lookups).
+// Canonical identity of a knob config (for dedupe / archive lookups). Includes
+// scopeFilter (0/1) so scoped vs unscoped are distinct grid/archive identities.
 function configKey(c) {
-  return `s${c.semanticTopK}_e${c.episodicTopK}_g${c.graphMaxResults}_c${c.contextMaxTokens}`;
+  return `s${c.semanticTopK}_e${c.episodicTopK}_g${c.graphMaxResults}_c${c.contextMaxTokens}_f${c.scopeFilter ? 1 : 0}`;
 }
 
 class RunStore {

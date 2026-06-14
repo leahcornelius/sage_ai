@@ -11,3 +11,9 @@ overnight/runs/*/*.log
 overnight/runs/*/bench-credential.json
 overnight/runs/*/*.pid
 overnight/runs/**/raw/
+# Night-two build/data artifacts (regenerable / NC-licensed / large)
+overnight/_build_dataset.json
+overnight/_genfull.log
+overnight/harness/_*.mjs
+data/locomo10.json
+overnight/runs/*/locomo-meta.json

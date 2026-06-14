@@ -26,7 +26,13 @@ const ALLOWED_CONFIG_KEYS = new Set([
   "episodicTopK",
   "graphMaxResults",
   "contextMaxTokens",
+  // Boolean knob (coerced below): restrict semantic recall to the requesting
+  // scope. Loop-toggleable so the harness can A/B scoped vs unscoped recall.
+  "scopeFilter",
 ]);
+
+// scopeFilter is a boolean; every other allowed key is a non-negative integer.
+const BOOLEAN_CONFIG_KEYS = new Set(["scopeFilter"]);
 
 function badRequest(message) {
   return new AppError({
@@ -102,6 +108,7 @@ async function registerAdminRoutes(app) {
       episodicTopK: config.memory.episodicTopK,
       graphMaxResults: config.memory.graphMaxResults,
       contextMaxTokens: config.memory.contextMaxTokens,
+      scopeFilter: Boolean(config.memory.scopeFilter),
     };
   }
 
@@ -134,9 +141,24 @@ async function registerAdminRoutes(app) {
 
     const applied = {};
     for (const key of keys) {
-      const value = updates[key];
-      if (!Number.isInteger(value) || value < 0) {
-        throw badRequest(`memory-config '${key}' must be a non-negative integer.`);
+      const rawValue = updates[key];
+      let value;
+      if (BOOLEAN_CONFIG_KEYS.has(key)) {
+        // Coerce a boolean knob: accept true/false or 1/0 (the loop sends 0/1).
+        if (typeof rawValue === "boolean") {
+          value = rawValue;
+        } else if (rawValue === 1 || rawValue === 0) {
+          value = rawValue === 1;
+        } else {
+          throw badRequest(
+            `memory-config '${key}' must be a boolean (true/false or 1/0).`
+          );
+        }
+      } else {
+        if (!Number.isInteger(rawValue) || rawValue < 0) {
+          throw badRequest(`memory-config '${key}' must be a non-negative integer.`);
+        }
+        value = rawValue;
       }
       // Live, in-place mutation of the shared config object: the next retrieval
       // request reads the new value off config.memory.* with no restart.
@@ -166,12 +188,7 @@ async function registerAdminRoutes(app) {
       ok: true,
       applied,
       cacheFlushed,
-      effective: {
-        semanticTopK: config.memory.semanticTopK,
-        episodicTopK: config.memory.episodicTopK,
-        graphMaxResults: config.memory.graphMaxResults,
-        contextMaxTokens: config.memory.contextMaxTokens,
-      },
+      effective: effectiveMemoryConfig(),
     };
   });
 

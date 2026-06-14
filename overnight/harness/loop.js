@@ -24,8 +24,10 @@ import {
   benchEnv, launchSage, readBoot, isAlive, killSage, waitForHealth,
   populate, verifyCompleteness, sleep,
 } from "./lib/supervisor.js";
-import { runGate0, runGate1, runGate2, runGate3, evalConfig, applyConfig } from "./gates.js";
+import { runGate0, runGate1, runGate1b, runGate2, runGate3, evalConfig, applyConfig } from "./gates.js";
 import { scoreSet, computeUtility } from "./lib/score.js";
+import { OllamaClient } from "./lib/ollama.js";
+import { loadLocomo, buildLocomo, evidenceRecall, judgedAccuracy } from "./lib/locomo.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
@@ -35,11 +37,13 @@ const KNOB_BOUNDS = {
   semanticTopK: [1, 30],
   episodicTopK: [0, 20],
   contextMaxTokens: [200, 4000],
+  scopeFilter: [0, 1], // P1 boolean knob (0=off, 1=on)
 };
 const GRID = {
   semanticTopK: [1, 3, 5, 10, 20, 30],
   episodicTopK: [0, 3, 10],
   contextMaxTokens: [400, 800, 1200, 2000, 4000],
+  scopeFilter: [0, 1], // cross the read-side knobs x scopeFilter -> clean A/B reference
 };
 
 // ---------------------------------------------------------------- args + log
@@ -111,16 +115,23 @@ function makeContext(args) {
 
   const benchPort = num(args["bench-port"], 8799);
   const realPort = num(args["real-port"], 8787);
+  const locomoPort = num(args["locomo-port"], 8800);
   const qdrantBenchUrl = args["qdrant-bench"] || "http://127.0.0.1:6344";
   const qdrantRealUrl = args["qdrant-real"] || "http://127.0.0.1:6333";
   const cacheBenchUrl = args["cache-bench"] || "redis://127.0.0.1:6345";
   const graphBenchUrl = args["graph-bench"] || "redis://127.0.0.1:6346";
+  const locomoCollection = `bench_locomo_${runid}`;
 
   return {
     phase, isDry, runid, runDir, store, log, benchKey,
-    benchPort, realPort, qdrantBenchUrl, qdrantRealUrl, cacheBenchUrl, graphBenchUrl,
+    benchPort, realPort, locomoPort, qdrantBenchUrl, qdrantRealUrl, cacheBenchUrl, graphBenchUrl,
+    locomoCollection,
     scorerModel: args["score-model"] || "gpt-4o-mini", // stable tiktoken encoder for retrieval scoring
-    checkpointModel: args["checkpoint-model"] || "gpt-5.2",
+    // LoCoMo checkpoint: cheap CLOUD answerer (held constant), LOCAL Qwen3 judge.
+    // Never gpt-5.2-mini (404s upstream). Preflight verifies; falls back on 404.
+    checkpointModel: args["checkpoint-model"] || "gpt-5.4-mini",
+    checkpointModelFallback: args["checkpoint-model-fallback"] || "gpt-4.1-mini",
+    judgeModel: args["judge-model"] || "qwen3:14b",
     seedDev: num(args["seed-dev"], 1337),
     seedHeldout: num(args["seed-heldout"], 7331),
     lambda: num(args.lambda, 0.00005),
@@ -138,8 +149,17 @@ function makeContext(args) {
     rateInUsdPer1M: num(args["rate-in"], 3),
     rateOutUsdPer1M: num(args["rate-out"], 15),
     noCheckpointModelCalls: Boolean(args["no-checkpoint-model-calls"]) || isDry,
+    // LoCoMo checkpoint sizing: ingest `locomoConvs` conversations; cap judged QA
+    // (billed) to bound cost; evidence-recall (free) can use more.
+    locomoFile: args["locomo-file"] || path.join(REPO_ROOT, "data", "locomo10.json"),
+    locomoConvs: num(args["locomo-convs"], isDry ? 1 : 5),
+    locomoJudgedQa: num(args["locomo-judged-qa"], 40),
+    locomoEvidenceQa: num(args["locomo-evidence-qa"], 80),
+    locomoPeriodicQa: num(args["locomo-periodic-qa"], 25),
     clients: {
       sage: new SageClient({ baseUrl: `http://127.0.0.1:${benchPort}`, apiKey: benchKey, model: args["score-model"] || "gpt-4o-mini" }),
+      locomoSage: new SageClient({ baseUrl: `http://127.0.0.1:${locomoPort}`, apiKey: benchKey, model: args["score-model"] || "gpt-4o-mini" }),
+      ollama: new OllamaClient({}),
       qdrantBench: new QdrantClient({ url: qdrantBenchUrl }),
       qdrantReal: new QdrantClient({ url: qdrantRealUrl }),
     },
@@ -196,7 +216,11 @@ async function gate0OrHalt(ctx, { collection, dataset }) {
     dataset,
     benchPort,
     realPort,
-    scopePrefix: `benchuser_${runid}`,
+    // Use the dataset's own scope prefix (supports --dataset reuse, where scopes
+    // carry the BUILD runid; still benchuser_*, never a real scope).
+    scopePrefix: dataset.meta.scopePrefix,
+    locomoCollection: ctx.locomoCollection,
+    locomoPort: ctx.locomoPort,
     log,
   });
   ctx.store.writeState({ ...(ctx.store.readState() || {}), lastGate0: result });
@@ -229,22 +253,111 @@ async function populateAndVerify(ctx, { dataset, collection }) {
   return { ingested, errors: errors.length, pointCount: await clients.qdrantBench.pointCount(collection) };
 }
 
+// ---------------------------------------------------------------- LoCoMo instance
+// A SECOND isolated bench Sage on its own port + own collection (bench_locomo_<runid>)
+// in the SAME isolated qdrant, so LoCoMo and the synthetic store never bleed (mnemosy-ai
+// fixes the shared collection name at startup, so two collections need two instances).
+async function ensureLocomoUp(ctx, { state }) {
+  const { store, benchKey, locomoPort, locomoCollection, qdrantBenchUrl, cacheBenchUrl, graphBenchUrl, clients, log } = ctx;
+  const boot = readBoot(store, "locomo");
+  if (boot && boot.collection === locomoCollection && isAlive(boot.pid)) {
+    try {
+      await waitForHealth(clients.locomoSage, { timeoutMs: 6000, intervalMs: 500 });
+      return { boot, fresh: false };
+    } catch { /* relaunch */ }
+  }
+  const env = benchEnv({ collection: locomoCollection, port: locomoPort, benchKey, qdrantUrl: qdrantBenchUrl, cacheUrl: cacheBenchUrl, graphUrl: graphBenchUrl });
+  log(`  launching LoCoMo bench Sage (port ${locomoPort}, collection ${locomoCollection})`);
+  const newBoot = launchSage({ repoRoot: REPO_ROOT, env, store, port: locomoPort, collection: locomoCollection, epoch: 1, name: "locomo" });
+  await waitForHealth(clients.locomoSage, { timeoutMs: 90000 });
+  log(`  LoCoMo Sage healthy (pid ${newBoot.pid}, port ${locomoPort})`);
+  return { boot: newBoot, fresh: true };
+}
+
+// Bring up LoCoMo + ingest once (idempotent via point count). Returns the built
+// { scopes, ingests, qas } or null if the LoCoMo file is absent.
+async function setupLocomo(ctx, { state }) {
+  const { clients, log } = ctx;
+  if (!fs.existsSync(ctx.locomoFile)) {
+    log(`  LoCoMo file not found at ${ctx.locomoFile} — LoCoMo checkpoint will be skipped`);
+    return null;
+  }
+  const data = loadLocomo(ctx.locomoFile);
+  const built = buildLocomo({ data, runid: ctx.runid, numConvs: ctx.locomoConvs });
+  log(`  LoCoMo: ${built.scopes.length} conversations, ${built.ingests.length} turns, ${built.qas.length} memory-relevant QA`);
+  const up = await ensureLocomoUp(ctx, { state });
+  const pc = await clients.qdrantBench.pointCount(ctx.locomoCollection);
+  const need = up.fresh || !pc || pc < built.ingests.length * 0.9;
+  if (need) {
+    log(`  ingesting ${built.ingests.length} LoCoMo turns into ${ctx.locomoCollection}`);
+    const { ingested, errors } = await populate({ client: clients.locomoSage, ingests: built.ingests, concurrency: 4, log: () => {} });
+    if (errors.length) log(`  WARN: ${errors.length} LoCoMo ingest errors (sample: ${errors[0]?.error})`);
+    for (let a = 1; a <= 5; a += 1) {
+      await sleep(1500 * a);
+      const p = await clients.qdrantBench.pointCount(ctx.locomoCollection);
+      log(`  LoCoMo populate settle ${a}: points=${p}`);
+      if (p >= built.ingests.length * 0.9) break;
+    }
+    writeJson(path.join(ctx.runDir, "locomo-meta.json"), {
+      convs: built.scopes.length, ingested, turns: built.ingests.length, qaCount: built.qas.length, createdAt: new Date().toISOString(),
+    });
+  } else {
+    log(`  LoCoMo already populated (${pc} points); adopting`);
+  }
+  return built;
+}
+
+// Probe the cloud answerer on the LoCoMo Sage; fall back on 404/unavailable.
+// Never gpt-5.2-mini. Returns the working model or null (then judged is skipped).
+async function preflightAnswerer(ctx) {
+  if (ctx.noCheckpointModelCalls) { ctx.resolvedAnswerer = null; return null; }
+  const candidates = [ctx.checkpointModel, ctx.checkpointModelFallback].filter(Boolean);
+  for (const model of candidates) {
+    try {
+      const r = await ctx.clients.locomoSage.chatCompletion({
+        model, messages: [{ role: "user", content: "Reply with the single word: ok" }],
+        chatId: `${ctx.locomoCollection}_preflight`,
+      });
+      if (r?.choices?.[0]?.message) {
+        ctx.resolvedAnswerer = model;
+        ctx.log(`  answerer preflight OK: ${model}${model !== ctx.checkpointModel ? " (fallback)" : ""}`);
+        return model;
+      }
+    } catch (error) {
+      ctx.log(`  answerer preflight ${model} failed: ${error.message}`);
+    }
+  }
+  ctx.resolvedAnswerer = null;
+  ctx.log("  WARN: no cloud answerer resolved — LoCoMo judged accuracy SKIPPED (evidence-recall still runs free)");
+  return null;
+}
+
+// LoCoMo evidence-recall for one config (FREE). Applies config on the LoCoMo Sage.
+async function locomoEvidence(ctx, { built, config, qaLimit }) {
+  await applyConfig(ctx.clients.locomoSage, config);
+  const qas = qaLimit ? built.qas.slice(0, qaLimit) : built.qas;
+  return evidenceRecall({ client: ctx.clients.locomoSage, qas, model: ctx.scorerModel, concurrency: ctx.concurrency });
+}
+
 // ---------------------------------------------------------------- mutation
 function randomConfig(rng, base) {
   return {
     semanticTopK: rng.int(...KNOB_BOUNDS.semanticTopK),
     episodicTopK: rng.int(...KNOB_BOUNDS.episodicTopK),
     contextMaxTokens: clamp(rng.int(2, 40) * 100, KNOB_BOUNDS.contextMaxTokens),
+    scopeFilter: rng.int(0, 1),
     graphMaxResults: base.graphMaxResults, // fixed (Zep off)
   };
 }
 
 function mutate(rng, parent, base) {
   const c = { ...parent, graphMaxResults: base.graphMaxResults };
-  const knob = rng.choice(["semanticTopK", "episodicTopK", "contextMaxTokens"]);
+  const knob = rng.choice(["semanticTopK", "episodicTopK", "contextMaxTokens", "scopeFilter"]);
   if (knob === "contextMaxTokens") {
     const step = (rng.int(1, 8)) * 50 * (rng.random() < 0.5 ? -1 : 1);
     c.contextMaxTokens = clamp(c.contextMaxTokens + step, KNOB_BOUNDS.contextMaxTokens);
+  } else if (knob === "scopeFilter") {
+    c.scopeFilter = c.scopeFilter ? 0 : 1; // flip the boolean knob
   } else {
     const step = rng.int(1, 4) * (rng.random() < 0.5 ? -1 : 1);
     c[knob] = clamp(c[knob] + step, KNOB_BOUNDS[knob]);
@@ -274,7 +387,9 @@ async function runGrid(ctx, { dataset }) {
   for (const s of GRID.semanticTopK) {
     for (const e of GRID.episodicTopK) {
       for (const c of GRID.contextMaxTokens) {
-        configs.push({ semanticTopK: s, episodicTopK: e, contextMaxTokens: c, graphMaxResults: dataset.baseGraphMaxResults ?? 20 });
+        for (const f of GRID.scopeFilter) {
+          configs.push({ semanticTopK: s, episodicTopK: e, contextMaxTokens: c, scopeFilter: f, graphMaxResults: dataset.baseGraphMaxResults ?? 20 });
+        }
       }
     }
   }
@@ -304,52 +419,27 @@ async function runGrid(ctx, { dataset }) {
 }
 
 // ---------------------------------------------------------------- checkpoint
-function isAbstentionAnswer(text) {
-  return /\b(don'?t know|do not know|no (information|record|data|details)|not (sure|aware|able)|cannot (find|determine|locate)|unable to|no relevant)\b/i.test(text || "");
-}
+// (Night two's model-calling checkpoint is the LoCoMo checkpoint — see lib/locomo.js
+// and setupLocomo/locomoEvidence/finalReport. The night-one synthetic chat checkpoint
+// is intentionally removed: the synthetic side is now retrieval-only/deterministic.)
 
-async function checkpointSlice(ctx, { config, questions, budgetState }) {
-  const { clients, checkpointModel, rateInUsdPer1M, rateOutUsdPer1M, log } = ctx;
-  await applyConfig(clients.sage, config);
-  const results = [];
-  for (const q of questions) {
-    if (budgetState.spendUsd >= budgetState.ceilingUsd) {
-      budgetState.stoppedByCeiling = true;
-      log(`  checkpoint: $ ceiling reached ($${budgetState.spendUsd.toFixed(2)}) — stopping model calls`);
-      break;
-    }
-    let resp;
-    try {
-      resp = await clients.sage.chatCompletion({ model: checkpointModel, messages: [{ role: "user", content: q.query }], chatId: q.scope });
-    } catch (error) {
-      results.push({ id: q.id, type: q.type, error: error.message });
-      continue;
-    }
-    const usage = resp.usage || {};
-    const cost = ((usage.prompt_tokens || 0) / 1e6) * rateInUsdPer1M + ((usage.completion_tokens || 0) / 1e6) * rateOutUsdPer1M;
-    budgetState.spendUsd += cost;
-    budgetState.calls += 1;
-    const answer = resp.choices?.[0]?.message?.content || "";
-    let correct;
-    if (q.type === "abstention") {
-      correct = isAbstentionAnswer(answer) && !/\b[0-9A-Z]{8}\b/.test(answer);
-    } else {
-      correct = q.requiredMarkers.every((m) => answer.includes(m));
-    }
-    results.push({ id: q.id, type: q.type, correct, costUsd: cost, promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens });
-  }
-  const graded = results.filter((r) => typeof r.correct === "boolean");
-  return {
-    n: graded.length,
-    correct: graded.filter((r) => r.correct).length,
-    accuracy: graded.length ? graded.filter((r) => r.correct).length / graded.length : null,
-    results,
-  };
-}
-
-function heldoutCheckpointSlice(ctx, dataset) {
-  // include abstention items in the e2e checkpoint
-  return dataset.heldout.slice(0, ctx.checkpointSliceSize);
+// Scoped-vs-unscoped verdict (the headline): compare loop-best ON vs OFF across the
+// real signals (held-out recall, LoCoMo evidence-recall, LoCoMo judged accuracy).
+function scopedVsUnscopedVerdict(off, on) {
+  if (!off || !on) return "n/a (missing scoped or unscoped best)";
+  const d = (a, b) => (a == null || b == null ? null : a - b);
+  const ho = d(on.hoRecall, off.hoRecall);
+  const ev = d(on.locomoEvidence, off.locomoEvidence);
+  const ju = d(on.locomoJudged, off.locomoJudged);
+  const fmt = (x) => `${x >= 0 ? "+" : ""}${x.toFixed(3)}`;
+  const parts = [];
+  if (ho != null) parts.push(`held-out recall ${fmt(ho)}`);
+  if (ev != null) parts.push(`LoCoMo evidence ${fmt(ev)}`);
+  if (ju != null) parts.push(`LoCoMo judged ${fmt(ju)}`);
+  const signed = [ho, ev, ju].filter((x) => x != null);
+  const avg = signed.length ? signed.reduce((a, b) => a + b, 0) / signed.length : 0;
+  const overall = avg > 0.01 ? "HELPED" : avg < -0.01 ? "HURT" : "NO MEASURABLE CHANGE";
+  return `${overall} (scoped − unscoped: ${parts.join(", ") || "no signals"})`;
 }
 
 // ---------------------------------------------------------------- run status
@@ -449,6 +539,16 @@ async function doGatesPhase(ctx, { dataset, state }) {
   const keepThreshold = g1.evidence.keepThreshold;
   log(`  Gate1 PASS (baselineUtility=${g1.evidence.baselineUtility.toFixed(4)}, deterministic=${g1.evidence.deterministic}, keepThreshold=${keepThreshold})`);
 
+  // Gate 1b — semantic channel actually exercised (THE linchpin; spec §5).
+  // Failure here is the run's most important signal, not an inconvenience: halt
+  // with the P0-too-weak diagnosis. Do NOT fix-and-retry to force a pass.
+  const g1b = await runGate1b({ client: ctx.clients.sage, dataset, model: ctx.scorerModel, lambda: ctx.lambda, concurrency: ctx.concurrency, log });
+  if (!g1b.pass) {
+    writeGateFailure(ctx, { gate: g1b.p0TooWeak ? "Gate 1b — P0 too weak (semantic not exercised)" : "Gate 1b", reason: g1b.reason, evidence: g1b.evidence });
+    throw new HaltError(`Gate 1b: ${g1b.reason}`);
+  }
+  log(`  Gate1b PASS — semantic exercised (mrrA=${g1b.evidence.meanMrrA.toFixed(3)} recallB=${g1b.evidence.meanRecallB.toFixed(3)} recallC=${g1b.evidence.meanRecallC.toFixed(3)} attrib=${g1b.evidence.attribution.toFixed(2)})`);
+
   // Gate 2
   const g2 = await runGate2({ client: ctx.clients.sage, dataset, model: ctx.scorerModel, log });
   if (!g2.pass) { writeGateFailure(ctx, { gate: "Gate 2", reason: g2.reason, evidence: g2.evidence }); throw new HaltError(`Gate 2: ${g2.reason}`); }
@@ -464,27 +564,41 @@ async function doGatesPhase(ctx, { dataset, state }) {
 
   const manifest = {
     runid: ctx.runid,
-    branch: process.env.GIT_BRANCH || "overnight/retrieval-loop-v0.1",
+    branch: process.env.GIT_BRANCH || "overnight/retrieval-loop-v0.2",
     commitSha: process.env.GIT_SHA || null,
     benchPort: ctx.benchPort,
     benchCollection: collection,
     qdrantBenchUrl: ctx.qdrantBenchUrl,
     seeds: { dev: ctx.seedDev, heldout: ctx.seedHeldout },
+    dataset: {
+      scopePrefix: dataset.meta.scopePrefix,
+      generation: dataset.meta.generation,
+      offlinePreview: dataset.meta.offlinePreview,
+    },
     setSizes: dataset.meta.counts,
-    knobBounds: KNOB_BOUNDS,
+    knobBounds: KNOB_BOUNDS, // incl. scopeFilter
     lambda: ctx.lambda,
-    checkpoint: { budget: ctx.checkpointBudget, costCeilingUsd: ctx.checkpointCostCeilingUsd, model: ctx.checkpointModel, rateInUsdPer1M: ctx.rateInUsdPer1M, rateOutUsdPer1M: ctx.rateOutUsdPer1M },
+    checkpoint: {
+      budget: ctx.checkpointBudget, costCeilingUsd: ctx.checkpointCostCeilingUsd,
+      answererModel: ctx.checkpointModel, answererFallback: ctx.checkpointModelFallback,
+      judge: `local:${ctx.judgeModel}`, // answerer != judge
+      rateInUsdPer1M: ctx.rateInUsdPer1M, rateOutUsdPer1M: ctx.rateOutUsdPer1M,
+    },
+    locomo: { collection: ctx.locomoCollection, port: ctx.locomoPort },
     runCaps: { wallClockHours: ctx.wallClockMs / 3600000, maxIterations: ctx.maxIterations, convergence: ctx.convergence },
     baselineConfig: baseline,
     noiseBand: g1.evidence.noiseBand,
     keepThreshold,
-    gates: { gate1: g1.evidence, gate2: g2.evidence, gate3: g3.evidence, gate1Retries: g1.retries || 0, gate2Retries: g2.retries || 0, gate3Retries: g3.retries || 0 },
+    gates: {
+      gate1: g1.evidence, gate1b: g1b.evidence, gate2: g2.evidence, gate3: g3.evidence,
+      gate1Retries: g1.retries || 0, gate1bRetries: g1b.retries || 0, gate2Retries: g2.retries || 0, gate3Retries: g3.retries || 0,
+    },
     createdAt: new Date().toISOString(),
   };
   store.writeManifest(manifest);
   store.writeState({ ...state, baseline, keepThreshold, gatesPassed: true });
-  writeJson(path.join(ctx.runDir, "gates-result.json"), { passed: true, gate1: g1, gate2: g2, gate3: g3 });
-  log("GATES 0-3 PASS");
+  writeJson(path.join(ctx.runDir, "gates-result.json"), { passed: true, gate1: g1, gate1b: g1b, gate2: g2, gate3: g3 });
+  log("GATES 0-1b-2-3 PASS");
   return { baseline, keepThreshold, manifest };
 }
 
@@ -523,6 +637,17 @@ async function doRunPhase(ctx) {
   let gridBest = null;
   if (ctx.grid || store.readGrid().length > 0) {
     gridBest = await runGrid(ctx, { dataset });
+  }
+
+  // bring up the isolated LoCoMo instance + ingest once + preflight the answerer
+  // (best-effort: the run continues without it, with LoCoMo columns marked skipped).
+  let locomoBuilt = null;
+  try {
+    locomoBuilt = await setupLocomo(ctx, { state });
+    if (locomoBuilt) await preflightAnswerer(ctx);
+  } catch (error) {
+    log(`  LoCoMo setup failed (continuing without LoCoMo): ${error.message}`);
+    locomoBuilt = null;
   }
 
   // initialise / resume current + best
@@ -595,23 +720,18 @@ async function doRunPhase(ctx) {
         await applyConfig(ctx.clients.sage, current.config);
       }
 
-      // capped e2e checkpoint (model calls) — only on improvement, throttled, under caps
-      if (
-        improved && !ctx.noCheckpointModelCalls &&
-        state.checkpoint.runs < ctx.checkpointBudget - 2 &&
-        state.checkpoint.spendUsd < ctx.checkpointCostCeilingUsd &&
-        state.iteration - state.checkpoint.lastIter >= ctx.checkpointThrottleIters
-      ) {
-        state.checkpoint.runs += 1;
-        state.checkpoint.lastIter = state.iteration;
-        const budgetState = { spendUsd: state.checkpoint.spendUsd, ceilingUsd: ctx.checkpointCostCeilingUsd, calls: state.checkpoint.calls, stoppedByCeiling: false };
-        const cp = await checkpointSlice(ctx, { config: best.config, questions: heldoutCheckpointSlice(ctx, dataset), budgetState });
-        state.checkpoint.spendUsd = budgetState.spendUsd;
-        state.checkpoint.calls = budgetState.calls;
-        if (budgetState.stoppedByCeiling) state.checkpoint.stoppedByCeiling = true;
-        log(`  [checkpoint] run ${state.checkpoint.runs}: best e2e acc=${cp.accuracy} (n=${cp.n}) spend~$${state.checkpoint.spendUsd.toFixed(2)}`);
-        store.appendArchive({ iteration: state.iteration, phase: "checkpoint", config: best.config, e2eAccuracy: cp.accuracy, n: cp.n, decision: "check" });
-        await applyConfig(ctx.clients.sage, current.config);
+      // periodic LoCoMo EVIDENCE-RECALL (FREE) for the current best — the cheap
+      // real-benchmark signal, run often (judged accuracy is reserved for the final
+      // money comparison). Uses the LoCoMo Sage client, so the synthetic config is
+      // untouched. No model calls.
+      if (locomoBuilt && (improved || state.iteration % 25 === 0)) {
+        try {
+          const ev = await locomoEvidence(ctx, { built: locomoBuilt, config: best.config, qaLimit: ctx.locomoPeriodicQa });
+          log(`  [locomo-evidence] iter ${state.iteration}: best evidenceRecall=${ev.meanEvidenceRecall.toFixed(3)} fullRecall=${ev.fullRecallRate.toFixed(3)} (n=${ev.n}, scopeFilter=${best.config.scopeFilter ? "on" : "off"})`);
+          store.appendArchive({ iteration: state.iteration, phase: "locomo-evidence", config: best.config, locomoEvidenceRecall: ev.meanEvidenceRecall, locomoFullRecall: ev.fullRecallRate, n: ev.n, decision: "check" });
+        } catch (error) {
+          log(`  [locomo-evidence] iter ${state.iteration} failed: ${error.message}`);
+        }
       }
 
       if (state.iteration % 10 === 0 || improved) {
@@ -632,131 +752,185 @@ async function doRunPhase(ctx) {
 
   // ---- final apples-to-apples comparison + report
   try {
-    await finalReport(ctx, { dataset, baseline, best, gridBest, state, startTime });
+    await finalReport(ctx, { dataset, baseline, best, gridBest, state, startTime, locomoBuilt });
   } catch (error) {
     log(`  finalReport failed (continuing to clean exit): ${error.message}`);
   }
 
-  // clean exit: restore baseline config (best-effort)
+  // clean exit: restore baseline config (best-effort) + stop the LoCoMo instance
   try { await applyConfig(ctx.clients.sage, baseline); } catch { /* throwaway */ }
+  try {
+    const lb = readBoot(store, "locomo");
+    if (lb?.pid) { log(`  stopping LoCoMo Sage pid ${lb.pid}`); killSage(lb.pid); }
+  } catch { /* best effort */ }
   store.writeArchiveSummary();
   store.writeState(state);
   log("RUN COMPLETE");
 }
 
-async function finalReport(ctx, { dataset, baseline, best, gridBest, state, startTime }) {
+async function finalReport(ctx, { dataset, baseline, best, gridBest, state, startTime, locomoBuilt }) {
   const { clients, scorerModel, lambda, concurrency, store, log } = ctx;
-  log("  computing final comparison (held-out retrieval + capped e2e checkpoints)");
+  log("  computing final comparison (dev + held-out retrieval + LoCoMo evidence + judged)");
 
-  async function heldoutRetrieval(config) {
+  const onDev = async (config) => {
+    const r = await evalConfig({ client: clients.sage, questions: dataset.dev, model: scorerModel, lambda, config, concurrency });
+    return r.utility;
+  };
+  const onHeldout = async (config) => {
     await applyConfig(clients.sage, config);
     const agg = await scoreSet({ client: clients.sage, questions: dataset.heldout, model: scorerModel, concurrency });
-    return { meanRecall: agg.meanRecall, meanTokens: agg.meanTokens, utility: computeUtility(agg, lambda) };
+    return { meanRecall: agg.meanRecall, utility: computeUtility(agg, lambda) };
+  };
+
+  // Derive loop-best UNSCOPED (scopeFilter off) and SCOPED (on) from the loop
+  // archive + the grid (the grid crosses scopeFilter, so both always exist).
+  const pool = [
+    ...store.readArchive().filter((r) => r.config && (r.phase === "loop" || r.phase === "baseline")),
+    ...store.readGrid().filter((r) => r.config),
+  ];
+  const bestWith = (f) => pool
+    .filter((r) => (r.config.scopeFilter ? 1 : 0) === f)
+    .sort((a, b) => b.utility - a.utility)[0] || null;
+  const loopBestOff = bestWith(0);
+  const loopBestOn = bestWith(1);
+
+  const rows = [
+    { key: "baseline", label: "baseline (off)", config: { ...baseline, scopeFilter: 0 } },
+    { key: "loopOff", label: "loop-best (unscoped, off)", config: loopBestOff?.config },
+    { key: "loopOn", label: "loop-best (scoped, on)", config: loopBestOn?.config },
+    { key: "grid", label: "grid-best", config: gridBest?.config },
+  ];
+
+  // dev utility + held-out retrieval for each
+  for (const row of rows) {
+    if (!row.config) continue;
+    row.devUtility = await onDev(row.config);
+    const ho = await onHeldout(row.config);
+    row.hoRecall = ho.meanRecall;
+    row.hoUtility = ho.utility;
   }
 
-  await applyConfig(clients.sage, baseline);
-  const baseDevAgg = await scoreSet({ client: clients.sage, questions: dataset.dev, model: scorerModel, concurrency });
-  const baselineDevUtility = computeUtility(baseDevAgg, lambda);
-
-  const baselineHO = await heldoutRetrieval(baseline);
-  const gridHO = gridBest ? await heldoutRetrieval(gridBest.config) : null;
-  const loopHO = await heldoutRetrieval(best.config);
-
-  // reserved final checkpoints (count against the 60 / $40 caps)
-  const budgetState = { spendUsd: state.checkpoint.spendUsd, ceilingUsd: ctx.checkpointCostCeilingUsd, calls: state.checkpoint.calls, stoppedByCeiling: false };
-  let gridCP = null;
-  let loopCP = null;
-  if (!ctx.noCheckpointModelCalls) {
-    if (gridBest && state.checkpoint.runs < ctx.checkpointBudget && budgetState.spendUsd < ctx.checkpointCostCeilingUsd) {
-      state.checkpoint.runs += 1;
-      gridCP = await checkpointSlice(ctx, { config: gridBest.config, questions: heldoutCheckpointSlice(ctx, dataset), budgetState });
+  // LoCoMo evidence-recall (FREE) for each row
+  if (locomoBuilt) {
+    for (const row of rows) {
+      if (!row.config) continue;
+      try {
+        const ev = await locomoEvidence(ctx, { built: locomoBuilt, config: row.config, qaLimit: ctx.locomoEvidenceQa });
+        row.locomoEvidence = ev.meanEvidenceRecall;
+        row.locomoEvN = ev.n;
+      } catch (error) {
+        log(`  LoCoMo evidence ${row.key} failed: ${error.message}`);
+      }
     }
-    if (state.checkpoint.runs < ctx.checkpointBudget && budgetState.spendUsd < ctx.checkpointCostCeilingUsd) {
+  }
+
+  // LoCoMo judged accuracy (BILLED, capped) for the money comparison: baseline / off / on
+  const budgetState = { spendUsd: state.checkpoint.spendUsd, ceilingUsd: ctx.checkpointCostCeilingUsd, calls: state.checkpoint.calls, stoppedByCeiling: false };
+  if (locomoBuilt && ctx.resolvedAnswerer && !ctx.noCheckpointModelCalls) {
+    for (const key of ["baseline", "loopOff", "loopOn"]) {
+      const row = rows.find((r) => r.key === key);
+      if (!row?.config || budgetState.spendUsd >= budgetState.ceilingUsd || state.checkpoint.runs >= ctx.checkpointBudget) continue;
+      await applyConfig(clients.locomoSage, row.config);
       state.checkpoint.runs += 1;
-      loopCP = await checkpointSlice(ctx, { config: best.config, questions: heldoutCheckpointSlice(ctx, dataset), budgetState });
+      const ja = await judgedAccuracy({
+        sageClient: clients.locomoSage, ollama: clients.ollama,
+        qas: locomoBuilt.qas.slice(0, ctx.locomoJudgedQa),
+        answererModel: ctx.resolvedAnswerer, judgeModel: ctx.judgeModel,
+        budgetState, rateInUsdPer1M: ctx.rateInUsdPer1M, rateOutUsdPer1M: ctx.rateOutUsdPer1M, log,
+      });
+      row.locomoJudged = ja.accuracy;
+      row.locomoJudgedN = ja.n;
+      log(`  [locomo-judged] ${row.label}: acc=${ja.accuracy == null ? "n/a" : ja.accuracy.toFixed(3)} (n=${ja.n}) spend~$${budgetState.spendUsd.toFixed(2)}`);
     }
   }
   state.checkpoint.spendUsd = budgetState.spendUsd;
   state.checkpoint.calls = budgetState.calls;
+  if (budgetState.stoppedByCeiling) state.checkpoint.stoppedByCeiling = true;
 
-  let verdict = "n/a (grid not run)";
+  // loop-vs-grid (machinery) verdict, as night one
+  let gridVerdict = "n/a (grid not run)";
   if (gridBest) {
     const delta = best.utility - gridBest.utility;
     const thr = state.keepThreshold || 1e-6;
-    if (delta > thr) verdict = "BEAT";
-    else if (delta < -Math.max(thr, 0.005)) verdict = "UNDERPERFORMED";
-    else verdict = "MATCHED";
+    gridVerdict = delta > thr ? "BEAT" : delta < -Math.max(thr, 0.005) ? "UNDERPERFORMED" : "MATCHED";
   }
+  // scoped-vs-unscoped (THE headline)
+  const sfVerdict = scopedVsUnscopedVerdict(rows.find((r) => r.key === "loopOff"), rows.find((r) => r.key === "loopOn"));
 
   const elapsedH = ((Date.now() - startTime) / 3600000).toFixed(2);
-  const fmtCfg = (c) => `semanticTopK=${c.semanticTopK}, episodicTopK=${c.episodicTopK}, contextMaxTokens=${c.contextMaxTokens}, graphMaxResults=${c.graphMaxResults}`;
-  const cpStr = (cp) => (cp ? `acc=${cp.accuracy == null ? "n/a" : cp.accuracy.toFixed(3)} (n=${cp.n})` : "skipped");
+  const fmtCfg = (c) => (c ? `s${c.semanticTopK}/e${c.episodicTopK}/c${c.contextMaxTokens}/scopeFilter=${c.scopeFilter ? "on" : "off"}` : "n/a");
+  const f3 = (x) => (x == null ? "n/a" : x.toFixed(3));
+  const f4 = (x) => (x == null ? "n/a" : x.toFixed(4));
+  const evCell = (r) => (r.locomoEvidence == null ? "skipped" : `${f3(r.locomoEvidence)} (n=${r.locomoEvN})`);
+  const juCell = (r) => (r.locomoJudged == null ? (ctx.resolvedAnswerer ? "—" : "skipped") : `${f3(r.locomoJudged)} (n=${r.locomoJudgedN})`);
+  const rowLine = (r) =>
+    `| ${r.label} | ${fmtCfg(r.config)} | ${f4(r.devUtility)} | ${f3(r.hoRecall)} / ${f4(r.hoUtility)} | ${evCell(r)} | ${juCell(r)} |`;
 
-  const restartSection = (state.restartCount || 0) > 0
-    ? [
-        "",
-        "## Bench-Sage restarts",
-        `The bench Sage restarted **${state.restartCount}** time(s) during the run. On each restart the loop`,
-        "rolled to a FRESH collection and full-re-populated (re-ingest into the same collection is",
-        "`message_id`-deduped and cannot rebuild the in-process episodic ring buffer). The durable semantic",
-        "channel is unaffected; any cross-restart score discontinuity should be read in that light.",
-      ]
-    : [];
+  const g1b = store.readManifest()?.gates?.gate1b;
+  const gen = dataset.meta?.generation;
 
   const body = [
-    "# RUN_REPORT.md — Overnight retrieval loop (V0.1)",
+    "# RUN_REPORT.md — Semantic-stress retrieval loop + scope-filtering (V0.2)",
     "",
     `Run \`${ctx.runid}\` — ${state.iteration} iterations, ${elapsedH}h elapsed.`,
     "",
-    "## Comparison (same dev set / held-out set / checkpoint)",
+    "## Comparison (same dev / held-out / LoCoMo sets)",
     "",
-    "| Config | Knobs | Dev utility | Held-out retrieval (recall / utility) | e2e checkpoint (gpt-5.2) |",
-    "|---|---|---|---|---|",
-    `| baseline | ${fmtCfg(baseline)} | ${baselineDevUtility.toFixed(4)} | ${baselineHO.meanRecall.toFixed(3)} / ${baselineHO.utility.toFixed(4)} | — |`,
-    `| grid-best | ${gridBest ? fmtCfg(gridBest.config) : "n/a"} | ${gridBest ? gridBest.utility.toFixed(4) : "n/a"} | ${gridHO ? `${gridHO.meanRecall.toFixed(3)} / ${gridHO.utility.toFixed(4)}` : "n/a"} | ${cpStr(gridCP)} |`,
-    `| loop-best | ${fmtCfg(best.config)} | ${best.utility.toFixed(4)} | ${loopHO.meanRecall.toFixed(3)} / ${loopHO.utility.toFixed(4)} | ${cpStr(loopCP)} |`,
+    "| Config | knobs + scopeFilter | dev utility | held-out recall/utility | LoCoMo evidence-recall | LoCoMo judged acc |",
+    "|---|---|---|---|---|---|",
+    ...rows.map(rowLine),
     "",
-    `**Verdict:** the loop **${verdict}** grid-best (§7.1: rediscovering grid-best is a PASS — it proves the loop behaves correctly in a known-small space).`,
+    `**Scoped-vs-unscoped verdict (the headline):** scope-filtering **${sfVerdict}**.`,
+    `**Loop-vs-grid (machinery):** the loop **${gridVerdict}** grid-best.`,
     "",
+    "## Gate 1b — semantic channel exercised (the linchpin)",
+    g1b
+      ? `PASS. meanMRR(A)=${f3(g1b.meanMrrA)}; semantic-only recall(B)=${f3(g1b.meanRecallB)}; ` +
+        `episodic-only recall(C)=${f3(g1b.meanRecallC)}; attribution=${f3(g1b.attribution)}; ` +
+        `multi-hop recall(A)=${f3(g1b.multiRecallA)} (reported separately). ` +
+        `This run measures semantic retrieval (night one had meanMRR=0).`
+      : "n/a",
+    "",
+    "## Run facts",
     `- iterations run: ${state.iteration}`,
     `- wall-clock elapsed: ${elapsedH}h`,
+    `- LoCoMo: ${locomoBuilt ? `${locomoBuilt.scopes.length} conversations, ${locomoBuilt.qas.length} memory-relevant QA` : "skipped (file absent)"}`,
+    `- answerer (billed, held constant): ${ctx.resolvedAnswerer || "none resolved — judged skipped"} (fallback ${ctx.checkpointModelFallback}); judge (local, free): ${ctx.judgeModel}`,
     `- checkpoint runs: ${state.checkpoint.runs} / ${ctx.checkpointBudget}`,
-    `- estimated checkpoint spend (CONSERVATIVE upper-bound): $${state.checkpoint.spendUsd.toFixed(2)} / $${ctx.checkpointCostCeilingUsd} ceiling${budgetState.stoppedByCeiling ? " (stopped by $ ceiling)" : ""}`,
-    `- checkpoint rates used: in $${ctx.rateInUsdPer1M}/1M, out $${ctx.rateOutUsdPer1M}/1M (gpt-5.2)`,
-    `- determinism noise band: ${state.noiseBand ?? store.readManifest()?.noiseBand ?? 0}`,
+    `- estimated answerer spend (CONSERVATIVE upper-bound): $${state.checkpoint.spendUsd.toFixed(2)} / $${ctx.checkpointCostCeilingUsd} ceiling${budgetState.stoppedByCeiling ? " (stopped by $ ceiling)" : ""}`,
+    `- answerer rates used: in $${ctx.rateInUsdPer1M}/1M, out $${ctx.rateOutUsdPer1M}/1M`,
+    `- determinism noise band: ${store.readManifest()?.noiseBand ?? 0}`,
+    `- benchmark generation: ${gen ? `gold paraphrase fallback ${(gen.goldFallbackRate * 100).toFixed(1)}% (${gen.gold.fallbacks}/${gen.gold.items}), model ${gen.model}` : "n/a"}`,
+    gen?.offlinePreview
+      ? `- offline preview (vector-only, pre-launch): within-5 unscoped ${f3(gen.offlinePreview.within5UnscopedRate)}, scoped ${f3(gen.offlinePreview.within5ScopedRate)}, meanGoldCosine ${f3(gen.offlinePreview.meanGoldCosine)}`
+      : "",
     "",
     "## Overfitting",
-    "Free held-out retrieval checks were logged every 25 iterations (see archive `phase:heldout-retrieval`).",
-    "If dev climbed while held-out stayed flat, that is logged as a generator-quirk overfitting signal.",
-    ...restartSection,
+    "Free held-out retrieval + LoCoMo evidence-recall were logged periodically (archive `phase:heldout-retrieval`,",
+    "`phase:locomo-evidence`). If dev climbed while held-out/LoCoMo stayed flat, that is a generator-quirk signal.",
     "",
-    "## External benchmarks",
-    "LoCoMo / LongMemEval were **skipped** (not present locally; spec marks them optional). The required",
-    "synthetic held-out checkpoint above is the authoritative end-to-end signal.",
-    "",
-    "## Night-two levers (code-level retrieval — out of V0.1 scope)",
-    "- **Scope-filter the semantic recall.** Today `mnemosyneClient.recall` is NOT scope-filtered, so a",
-    "  query retrieves across all scopes in the collection. Per-scope filtering would cut cross-scope noise",
-    "  and raise precision (and make `semanticTopK` more effective).",
-    "- **Cross-bucket ranking / fusion.** Identity/graph/semantic/episodic are concatenated then trimmed",
-    "  episodic→semantic→graph. A unified relevance ranking before trim would keep the best items per token.",
-    "- **Dedup / rerank.** Episodic storage repeats near-identical turns; dedup + a reranker would reduce",
-    "  wasted context tokens and improve `contextMaxTokens` efficiency.",
-    "- **Query rewriting / multi-hop decomposition.** Multi-hop questions need both facts; decomposing the",
-    "  query into sub-queries would raise multi-hop recall beyond what a single top-K pass achieves.",
-    "- **Temporal recency ranking.** Temporal-update items rely on phrasing to suppress the stale marker;",
-    "  an explicit recency/supersession signal would make 'stale absent' robust.",
-  ].join("\n");
+    "## Night-three levers (deferred — out of V0.2 scope)",
+    "- **P2 — Cross-bucket ranking / fusion before trim.** Thread similarity scores through `searchSemantic`",
+    "  and rank identity/graph/semantic/episodic by relevance before the token trim (episodic→semantic).",
+    "- **P3 — Dedup / rerank.** Episodic storage repeats near-identical verbose turns; dedup + a reranker",
+    "  would cut wasted `contextMaxTokens` and raise effective recall per token.",
+    "- **P4 — Query rewriting / multi-hop decomposition.** Decompose multi-hop into sub-queries and union.",
+    "- **P5 — Temporal recency / supersession ranking.** Make 'stale absent' robust via an explicit recency",
+    "  or version signal rather than phrasing.",
+    "- **LongMemEval** as the broader real-benchmark checkpoint (LoCoMo only this night).",
+  ].filter((l) => l !== "").join("\n");
   fs.writeFileSync(path.join(ctx.runDir, "RUN_REPORT.md"), body);
   store.writeState(state);
-  log(`  RUN_REPORT.md written (verdict: ${verdict})`);
+  log(`  RUN_REPORT.md written (scoped-vs-unscoped: ${sfVerdict}; loop-vs-grid: ${gridVerdict})`);
 }
 
 async function teardownDry(ctx, { state }) {
-  const boot = readBoot(ctx.store);
-  if (boot?.pid) {
-    ctx.log(`  dry-run teardown: stopping bench Sage pid ${boot.pid}`);
-    killSage(boot.pid);
+  for (const name of ["", "locomo"]) {
+    const boot = readBoot(ctx.store, name);
+    if (boot?.pid) {
+      ctx.log(`  dry-run teardown: stopping ${name || "synthetic"} bench Sage pid ${boot.pid}`);
+      killSage(boot.pid);
+    }
   }
 }
 
@@ -766,16 +940,24 @@ async function main() {
   const ctx = makeContext(args);
   ctx.log(`=== loop.js phase=${ctx.phase} runid=${ctx.runid} ===`);
 
-  // generate (gates/dry) or load (run)
+  // generate (gates/dry), reuse a frozen dataset (--dataset), or load (run)
   let dataset;
   const datasetPath = path.join(ctx.runDir, "dataset.json");
   if (ctx.phase === "run") {
     dataset = readJson(datasetPath);
     if (!dataset) { ctx.log("FATAL: dataset.json missing (run gates phase first)"); process.exit(2); }
-  } else {
-    dataset = generateDataset({ runid: ctx.runid, seedDev: ctx.seedDev, seedHeldout: ctx.seedHeldout });
+  } else if (args.dataset) {
+    // Reuse a previously-frozen dataset (e.g. the dry-run's) so a Gate 1b pass
+    // transfers deterministically rather than re-rolling Qwen content (spec §3).
+    const src = readJson(args.dataset);
+    if (!src) { ctx.log(`FATAL: --dataset ${args.dataset} not readable`); process.exit(2); }
+    dataset = src;
     writeJson(datasetPath, dataset);
-    ctx.log(`  generated dataset: ${JSON.stringify(dataset.meta.counts)}`);
+    ctx.log(`  reused frozen dataset from ${args.dataset}: ${JSON.stringify(dataset.meta.counts)} (scopePrefix ${dataset.meta.scopePrefix})`);
+  } else {
+    dataset = await generateDataset({ runid: ctx.runid, seedDev: ctx.seedDev, seedHeldout: ctx.seedHeldout });
+    writeJson(datasetPath, dataset);
+    ctx.log(`  generated dataset: ${JSON.stringify(dataset.meta.counts)} goldFallbackRate=${dataset.meta.generation.goldFallbackRate}`);
   }
 
   const state = ctx.store.readState() || { epoch: 1, iteration: 0, restartCount: 0, checkpoint: { runs: 0, spendUsd: 0, calls: 0, lastIter: -9999, stoppedByCeiling: false } };
