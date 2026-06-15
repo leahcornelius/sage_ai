@@ -6,7 +6,7 @@ gates and an overnight run, but an **audit → contract-test suite → test-gate
 memory-retrieval substrate. Fully local, **$0** (no checkpoint/model calls).
 
 Sage is a **hobby project, not in production anywhere** — so fixes land directly on the branch, gated by
-tests and revertable via git; no flag-default-off-for-safety mandate and no per-fix authorization needed.
+tests and reversible via git; no flag-default-off-for-safety mandate and no per-fix authorization needed.
 
 ## Why this experiment exists
 
@@ -110,4 +110,4 @@ work on it. Crisp finish line — don't drift past it into the rest of Sage.
 Run the contract-test suite (all green for fixed items; documented-and-flagged for the design-judgement
 items). Confirm the isolated bench stack was used throughout (no touch to local dev memories). Summarise the
 before/after for the merge bug specifically (live point count 134→620 on the homogeneous fixture, `scopeKey`
-preserved) as the headline fix.1
+preserved) as the headline fix.

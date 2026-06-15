@@ -101,13 +101,13 @@ Night two = **code-level retrieval changes** (now in scope). Each should be meas
 The harness IS the night-two regression test. After a retrieval-code change, re-run and compare to night-one numbers.
 
 1. **Bench backing stack (throwaway, isolated):**
-   ```
+   ```bash
    docker run -d --name qdrant_bench  -p 6344:6333 qdrant/qdrant
    docker run -d --name redis_bench   -p 6345:6379 redis:7-alpine
    docker run -d --name falkordb_bench -p 6346:6379 falkordb/falkordb
    ```
 2. **Gated run (foreground), then audit, then detached loop** — same flow as night one:
-   ```
+   ```bash
    # gates (launches isolated bench Sage on 8799, Gate0→populate→Gates1-3, leaves Sage up)
    node overnight/harness/loop.js --phase gates --run <newid> --grid \
      --checkpoint-model gpt-5.2 --checkpoint-budget 60 --checkpoint-cost-ceiling 40

@@ -12,9 +12,9 @@
 - checkpoint spend (CONSERVATIVE est, upper-bound): $0.00 / $40 ceiling
 - checkpoint runs: 0 / 60
 - checkpoint model: gpt-5.2 (rates in $3/1M, out $15/1M)
-- run dir: C:\Users\Admin\Documents\Code\Sage\overnight\runs\r2026061323123_8577_dry
-- stdout/err: C:\Users\Admin\Documents\Code\Sage\overnight\runs\r2026061323123_8577_dry\logs\loop.out.log / C:\Users\Admin\Documents\Code\Sage\overnight\runs\r2026061323123_8577_dry\logs\loop.err.log
-- sage logs: C:\Users\Admin\Documents\Code\Sage\overnight\runs\r2026061323123_8577_dry\logs\sage.out.log / sage.err.log
+- run dir: overnight/runs/r2026061323123_8577_dry
+- stdout/err: overnight/runs/r2026061323123_8577_dry/logs/loop.out.log / overnight/runs/r2026061323123_8577_dry/logs/loop.err.log
+- sage logs: overnight/runs/r2026061323123_8577_dry/logs/sage.out.log / overnight/runs/r2026061323123_8577_dry/logs/sage.err.log
 
 ## resume
 ```powershell

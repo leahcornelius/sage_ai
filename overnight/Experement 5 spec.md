@@ -189,7 +189,7 @@ Triggered on **any** breached gate in Phases 1–2.
    carryover** + this package.
 3. **Adjudicator reviews and returns a structured decision** (§7 output format):
    `APPROVE` · `REQUEST_CHANGES` (back-and-forth, **max 3 exchanges**, then it must decide)
-   · `REDIRECT[new hypothesis]` · `ACCEPT_HALT→FALLBACK` · `HALT_ENTIRELY` — plus
+   · `REDIRECT[new hypothesis]` · `ACCEPT_HALT_FALLBACK` · `HALT_ENTIRELY` — plus
    `RATIONALE` (logged) and `CARRYOVER` (appended to the next spawn).
 4. **Builder implements** the approved/redirected decision, re-runs the gate.
 5. Still failing → **new round** (a *distinct* hypothesis). **Max 3 rounds per gate.** Then
@@ -197,7 +197,7 @@ Triggered on **any** breached gate in Phases 1–2.
 
 **Round discipline (hard):** each round is a **genuinely new principled hypothesis** with a
 stated rationale — **not** the same change tuned toward the threshold. If the Adjudicator
-cannot articulate a new hypothesis, it returns `ACCEPT_HALT→FALLBACK` rather than burning a
+cannot articulate a new hypothesis, it returns `ACCEPT_HALT_FALLBACK` rather than burning a
 round on a tweak. This is the anti-"iterate-until-green" rule, enforced by the Adjudicator.
 
 **Global caps across the whole experiment:** ≤ ~20 total adjudicator spawns (quota
@@ -227,7 +227,7 @@ protection), 24h wall-clock, $80 cloud spend. Harness hard-stops on any.
 >    system, or just the scoreboard?*
 > 3. **One principled change per round; each round a DISTINCT hypothesis.** No tuning toward
 >    the threshold. If you cannot state a genuinely new hypothesis, choose
->    `ACCEPT_HALT→FALLBACK`.
+>    `ACCEPT_HALT_FALLBACK`.
 > 4. **Accept findings.** "It doesn't help" is a real result. Report it; don't bury it.
 > 5. **Scope discipline.** Stay on the memory-retrieval substrate + harness. Don't sprawl.
 > 6. **Bias to fallback on interpretive calls.** When a judgement is genuinely ambiguous,
@@ -252,7 +252,7 @@ protection), 24h wall-clock, $80 cloud spend. Harness hard-stops on any.
 > branch. You **must** log your rationale.
 >
 > **Escape hatches (use narrowly):**
-> - `ACCEPT_HALT→FALLBACK`: choose this when ≤3 rounds are exhausted, when no new principled
+> - `ACCEPT_HALT_FALLBACK`: choose this when ≤3 rounds are exhausted, when no new principled
 >   hypothesis exists, or when proceeding would require a **genuine human-only action** you
 >   cannot perform (e.g. an external secret/API key/account the sandbox can't provision —
 >   note that the Builder *can* run commands and install models, so this set is small).
@@ -260,7 +260,7 @@ protection), 24h wall-clock, $80 cloud spend. Harness hard-stops on any.
 >   should essentially never fire below Phase 0.
 >
 > **Output EXACTLY this structure:**
-> ```
+> ```text
 > DECISION: <APPROVE | REQUEST_CHANGES | REDIRECT | ACCEPT_HALT_FALLBACK | HALT_ENTIRELY>
 > HYPOTHESIS: <if REDIRECT: the distinct, principled hypothesis for this round; else "n/a">
 > RATIONALE: <why — cite the specific numbers/diffs/lessons; name any gaming smell you

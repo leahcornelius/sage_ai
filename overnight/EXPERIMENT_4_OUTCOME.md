@@ -22,8 +22,9 @@ landed directly on the branch, test-gated and git-revertable.
   2. **`partial`-when-Zep-off (D3.2, MEDIUM).** A result is `partial` only when an *enabled*
      source fails, not when an adapter is disabled by config.
 - **All primitives + the harness characterized and locked** with a committed contract-test
-  suite (`overnight/contracts/`, **30/30 green** via `npm run test:contracts`). Whole repo
-  (`npm test`) **127/127** (97 pre-existing `test/` + 30 contracts).
+  suite (`overnight/contracts/`, **30/30 green** via `npm run test:contracts`). With the
+  contract backends reachable, that is **127/127** total (97 pre-existing `test/` unit tests
+  + 30 contracts); see the conditional note below.
 - **Three items flagged for your judgement** (no guessing, no fix): the mem0 architecture
   question, the `episodicTopK=0` floor, and the dormant semantic-fact embedding hygiene
   (D3.1). One deferred restore recorded concretely: episodic BM25 re-indexing.
@@ -126,7 +127,9 @@ three flagged items are decided (or avoided) rather than silently assumed.
 
 - `npm run test:contracts` → **green** (isolated Qdrant `:6344` + local Ollama; only
   `sage_contract_*` collections, auto-dropped — dev `sage_mem_v2` untouched).
-- `npm test` (whole repo) → **97/97**; the contract suite skips gracefully if backends are down.
+- `npm test` (`test/` unit suite) → **97/97**; the contract suite (`npm run test:contracts`,
+  +30) runs separately and skips gracefully when its backends are down — so the combined total
+  is **127/127** with backends up, **97/97 (+30 skipped)** without.
 - Headline: `node overnight/contracts/verification/merge-before-after.mjs` → 130 → 620 live,
   scopeKey 18 → 620.
 - Isolation confirmed: the suite's hard guard refuses any collection not prefixed
