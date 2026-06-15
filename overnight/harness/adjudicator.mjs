@@ -198,7 +198,7 @@ export function assembleStaticPack({ runDir } = {}) {
     readSafe("overnight/DEFECT_INVENTORY.md"),
     "",
     "## EXPERIMENT_4_OUTCOME.md (substrate readiness — TL;DR + readiness only)",
-    readSafe("overnight/EXPERIMENT_4_OUTCOME.md", 4000),
+    readSafe("overnight/experiments/exp4/EXPERIMENT_4_OUTCOME.md", 4000),
   ].join("\n");
   if (runDir) {
     try {
