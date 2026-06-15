@@ -1,0 +1,30 @@
+{
+  "epoch": 1,
+  "iteration": 3,
+  "restartCount": 0,
+  "checkpoint": {
+    "runs": 0,
+    "spendUsd": 0,
+    "calls": 0,
+    "lastIter": -9999,
+    "stoppedByCeiling": false
+  },
+  "baseline": {
+    "semanticTopK": 5,
+    "episodicTopK": 3,
+    "graphMaxResults": 20,
+    "contextMaxTokens": 1200
+  },
+  "keepThreshold": 0.000001,
+  "gatesPassed": true,
+  "noImprove": 0,
+  "current": {
+    "config": {
+      "semanticTopK": 20,
+      "episodicTopK": 10,
+      "graphMaxResults": 20,
+      "contextMaxTokens": 3900
+    },
+    "utility": 0.4084019230769231
+  }
+}

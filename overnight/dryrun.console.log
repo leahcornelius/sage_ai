@@ -1,0 +1,29 @@
+[2026-06-13T23:12:31.681Z] === loop.js phase=dry runid=r2026061323123_8577_dry ===
+[2026-06-13T23:12:31.684Z]   generated dataset: {"devQuestions":32,"heldoutQuestions":16,"ingests":140,"markers":140}
+[2026-06-13T23:12:31.685Z]   launching bench Sage (port 8799, collection bench_r2026061323123_8577_dry_e1)
+[2026-06-13T23:12:33.728Z]   bench Sage healthy (pid 26312)
+[2026-06-13T23:12:33.737Z]   Gate0 isolation: PASS
+[2026-06-13T23:12:33.739Z]   baseline config: {"semanticTopK":5,"episodicTopK":3,"graphMaxResults":20,"contextMaxTokens":1200}
+[2026-06-13T23:12:33.741Z]   populating 140 facts into bench_r2026061323123_8577_dry_e1 (points before: 0)
+[2026-06-13T23:13:02.364Z]   populate settle attempt 1: points=140 complete=true missing=0
+[2026-06-13T23:13:02.366Z]   populated: 140 ingests, 140 points
+[2026-06-13T23:13:46.051Z]   Gate1 PASS (baselineUtility=0.1866, deterministic=true, keepThreshold=0.000001)
+[2026-06-13T23:13:47.058Z]   Gate2 PASS ({"lowK":{"len":1,"tokens":195,"goldPresent":false},"highK":{"len":10,"tokens":1608,"goldPresent":false},"lenChanged":true,"tokChanged":true,"recallChanged":false})
+[2026-06-13T23:14:10.744Z]   Gate3: revert(-0.0025) + keep(0.4085) both fired
+[2026-06-13T23:14:10.744Z]   Gate3 PASS ({"regressiveUtility":-0.0025384615384615385,"strongUtility":0.40846153846153843,"revertDecision":"revert","keepDecision":"keep","keepThreshold":0.000001})
+[2026-06-13T23:14:10.757Z] GATES 0-3 PASS
+[2026-06-13T23:14:10.769Z]   Gate0 isolation: PASS
+[2026-06-13T23:14:29.228Z]   populating 140 facts into bench_r2026061323123_8577_dry_e1 (points before: 140)
+[2026-06-13T23:14:49.081Z]   populate settle attempt 1: points=140 complete=true missing=0
+[2026-06-13T23:14:49.083Z]   grid: 90 configs (0 already done)
+[2026-06-13T23:15:01.124Z]   grid new best: s1_e0_g20_c400 u=0.0668 recall=0.077 tok=203
+[2026-06-13T23:16:00.944Z]   grid new best: s1_e3_g20_c400 u=0.2182 recall=0.231 tok=252
+[2026-06-13T23:17:03.003Z]   grid new best: s1_e10_g20_c400 u=0.5191 recall=0.538 tok=386
+[2026-06-13T23:55:11.698Z]   iter 1: cand=s20_e10_g20_c3900 u=0.4084 keep *BEST* (best=0.4084, noImprove=0)
+[2026-06-13T23:55:34.644Z]   STOP: iteration cap 3
+[2026-06-13T23:55:34.645Z]   computing final comparison (held-out retrieval + capped e2e checkpoints)
+[2026-06-13T23:56:06.022Z]   RUN_REPORT.md written (verdict: UNDERPERFORMED)
+[2026-06-13T23:56:06.028Z] RUN COMPLETE
+[2026-06-13T23:56:06.029Z]   dry-run teardown: stopping bench Sage pid 26312
+[2026-06-13T23:56:06.029Z] DRY-RUN complete.
+DRYRUN_EXIT=0

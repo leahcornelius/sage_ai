@@ -1,0 +1,95 @@
+{
+  "runid": "r2026061323123_8577_dry",
+  "branch": "overnight/retrieval-loop-v0.1",
+  "commitSha": null,
+  "benchPort": 8799,
+  "benchCollection": "bench_r2026061323123_8577_dry_e1",
+  "qdrantBenchUrl": "http://127.0.0.1:6344",
+  "seeds": {
+    "dev": 1337,
+    "heldout": 7331
+  },
+  "setSizes": {
+    "devQuestions": 32,
+    "heldoutQuestions": 16,
+    "ingests": 140,
+    "markers": 140
+  },
+  "knobBounds": {
+    "semanticTopK": [
+      1,
+      30
+    ],
+    "episodicTopK": [
+      0,
+      20
+    ],
+    "contextMaxTokens": [
+      200,
+      4000
+    ]
+  },
+  "lambda": 0.00005,
+  "checkpoint": {
+    "budget": 60,
+    "costCeilingUsd": 40,
+    "model": "gpt-5.2",
+    "rateInUsdPer1M": 3,
+    "rateOutUsdPer1M": 15
+  },
+  "runCaps": {
+    "wallClockHours": 8,
+    "maxIterations": 3,
+    "convergence": 100
+  },
+  "baselineConfig": {
+    "semanticTopK": 5,
+    "episodicTopK": 3,
+    "graphMaxResults": 20,
+    "contextMaxTokens": 1200
+  },
+  "noiseBand": 0,
+  "keepThreshold": 0.000001,
+  "gates": {
+    "gate1": {
+      "baselineUtility": 0.18657307692307692,
+      "meanRecall": 0.23076923076923078,
+      "meanTokens": 883.9230769230769,
+      "meanMrr": 0.07692307692307693,
+      "deterministic": true,
+      "noiseBand": 0,
+      "keepThreshold": 0.000001,
+      "cacheHits": 0,
+      "recallSpread": {
+        "min": 0,
+        "max": 1
+      }
+    },
+    "gate2": {
+      "lowK": {
+        "len": 1,
+        "tokens": 195,
+        "goldPresent": false
+      },
+      "highK": {
+        "len": 10,
+        "tokens": 1608,
+        "goldPresent": false
+      },
+      "lenChanged": true,
+      "tokChanged": true,
+      "recallChanged": false
+    },
+    "gate3": {
+      "regressiveUtility": -0.0025384615384615385,
+      "strongUtility": 0.40846153846153843,
+      "revertDecision": "revert",
+      "keepDecision": "keep",
+      "keepThreshold": 0.000001
+    },
+    "gate1Retries": 0,
+    "gate2Retries": 0,
+    "gate3Retries": 0
+  },
+  "createdAt": "2026-06-13T23:14:10.753Z"
+}
