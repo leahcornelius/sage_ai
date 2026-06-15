@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 
+import { classifyMemory } from "mnemosy-ai";
+
 function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
   const adapterLogger = logger.child({ component: "mnemosyne-adapter" });
   const enabled = config.memory.mode !== "off" && Boolean(mnemosyneClient);
@@ -28,6 +30,7 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
 
     const recalled = await mnemosyneClient.recall({
       query: `message_id:${messageId}`,
+      limit: 1,
       topK: 1,
     });
     const exists = Array.isArray(recalled)
@@ -48,6 +51,19 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     timestamp,
   }) {
     if (!enabled || !messageText) {
+      return null;
+    }
+
+    // SECRET GUARD: the raw db.store path below bypasses mnemosy-ai's
+    // fullStorePipeline, which refuses to persist secret-classified text
+    // (returns { action: "blocked_secret" }). Re-apply that classifier here so
+    // the raw episodic store preserves the documented refusal instead of making
+    // passwords/tokens/keys durable and retrievable. Fail closed: drop the turn.
+    if (classifyMemory(messageText) === "secret") {
+      adapterLogger.warn(
+        { scopeKey, messageId },
+        "storeEpisodic dropped a secret-classified turn (raw store secret guard)"
+      );
       return null;
     }
 
@@ -120,6 +136,17 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     for (const rawFact of facts) {
       const text = typeof rawFact?.text === "string" ? rawFact.text.trim() : "";
       if (!text) continue;
+
+      // SECRET GUARD (see storeEpisodic): the raw db.store path bypasses
+      // fullStorePipeline's secret classifier, so re-apply it and skip any fact
+      // that classifies as secret rather than persisting it as public.
+      if (classifyMemory(text) === "secret") {
+        adapterLogger.warn(
+          { scopeKey },
+          "upsertSemanticFacts skipped a secret-classified fact (raw store secret guard)"
+        );
+        continue;
+      }
 
       const factKey =
         rawFact.factKey ||
@@ -263,12 +290,19 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     }
     const recalled = await mnemosyneClient.recall({
       query: scopeKey,
+      limit: 1,
       topK: 1,
     });
     return Array.isArray(recalled) && recalled.length > 0;
   }
 
   async function getEpisodicSummaries({ scopeKey, maxItems = 5 }) {
+    // Honor zero: episodicTopK=0 is the benchmark's way to disable the episodic
+    // channel, so return nothing (previously a Math.max(1, …) floor leaked one
+    // recent turn even when callers asked for none — Exp4 characterization).
+    if (Number.isInteger(maxItems) && maxItems <= 0) {
+      return [];
+    }
     const entries = recentEpisodicByScope.get(scopeKey) || [];
     return entries
       .slice(-Math.max(1, maxItems))
@@ -285,6 +319,7 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     }
     await mnemosyneClient.recall({
       query: "healthcheck",
+      limit: 1,
       topK: 1,
     });
     return "OK";

@@ -47,7 +47,10 @@ function fact(text, n) {
 const ALPHA = [
   fact("The route code for the Crimson Falcon yard is Z8VAG0RP.", 0),
   fact("The access badge for the Helios east wing is ALPHA1234.", 1),
-  fact("The wifi password in the Helios lab is QWERTY9XZ.", 2),
+  // NB: deliberately NOT a secret-classified fact (no "password"/"token"/"key"):
+  // upsertSemanticFacts now drops secret-classified text (raw-store secret guard),
+  // which is exercised separately in episodic-buffer.contract.test.mjs.
+  fact("The wifi network name in the Helios lab is QWERTY9XZ.", 2),
 ];
 const BETA = [
   fact("The route code for the Crimson Lynx annex is B7TT2KLM.", 0),
