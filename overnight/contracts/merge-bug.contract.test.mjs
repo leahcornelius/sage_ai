@@ -109,8 +109,16 @@ test(
       await adapter.storeEpisodic(turn);
     }
 
-    const live = await countLive(collections.shared);
-    const dead = await countDeleted(collections.shared);
+    // Poll for eventual write visibility: db.store does not wait for the point to be
+    // searchable, so an immediate read flakes (worse under npm-test concurrency).
+    let live = 0;
+    let dead = 0;
+    for (let i = 0; i < 100; i++) {
+      live = await countLive(collections.shared);
+      dead = await countDeleted(collections.shared);
+      if (live >= N) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
     t.diagnostic(`raw episodic path: live=${live} dead=${dead} of N=${N}`);
 
     assert.equal(live, N, `every distinct turn is a live point: expected ${N}, got ${live}`);
