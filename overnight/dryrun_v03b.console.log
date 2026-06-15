@@ -1,0 +1,12 @@
+[2026-06-14T20:33:23.625Z] === loop.js phase=dry runid=r2026061420332_f4c0_dry ===
+[2026-06-14T20:33:23.627Z]   reused frozen dataset from overnight/runs/r2026061417083_b829_dry/dataset.json: {"devQuestions":48,"heldoutQuestions":24,"ingests":620,"markers":620} (scopePrefix benchuser_v02build1)
+[2026-06-14T20:33:23.628Z]   launching bench Sage (port 8799, collection bench_r2026061420332_f4c0_dry_e1)
+[2026-06-14T20:33:25.673Z]   bench Sage healthy (pid 6760)
+[2026-06-14T20:33:25.685Z]   Gate0 isolation: PASS
+[2026-06-14T20:33:25.687Z]   baseline config: {"semanticTopK":5,"episodicTopK":3,"graphMaxResults":20,"contextMaxTokens":1200,"scopeFilter":false}
+[2026-06-14T20:33:25.690Z]   populating 620 facts into bench_r2026061420332_f4c0_dry_e1 (points before: 0)
+[2026-06-14T20:34:08.677Z]   populate settle attempt 1: points=620 complete=true missing=0
+[2026-06-14T20:34:08.678Z]   populated: 620 ingests, 620 points
+[2026-06-14T20:35:18.872Z]   Gate1 PASS (baselineUtility=0.6402, deterministic=true, keepThreshold=0.000001)
+[2026-06-14T20:36:37.418Z] HALT: Gate 1b: Gate1b (reframed, scoped channel) FAILED [scopedGap]. scoped: mrrA=0.832 recallB'(scoped semantic)=0.719 recallC(episodic-only)=0.000 attrib=1.00; headline gap B'-B_unscoped=0.125 (>=0.3); control B_dbsearch_unscoped=0.469 (pureScoping=0.250 pipeline=-0.125). The within-scope payload-filter did not carry the gold in the live pipeline (the offline rank-1-2 evidence did not transfer) or the scoping gap is insufficient. Per the run rule: accept the halt, do NOT fix-and-retry.
+[2026-06-14T20:36:37.418Z]   dry-run teardown: stopping synthetic bench Sage pid 6760
