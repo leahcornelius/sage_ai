@@ -198,9 +198,14 @@ test("T4 caps: spawnAdjudicator HARD-REFUSES at each cap without shelling claude
 });
 
 // ---- T5: isolation -----------------------------------------------------------
-test("T5 isolation: on experiment/5 branch; collection-name policy excludes dev collections", () => {
+test("T5 isolation: collection-name policy excludes dev collections", () => {
+  // Branch-pin guard: while a run is live on an experiment branch this catches an
+  // accidental run on the wrong branch. Once the work is merged to main the pin is
+  // historical and cannot hold, so enforce it only when on an experiment/* branch.
   const branch = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).stdout.trim();
-  assert.match(branch, /^experiment\/5/, `on experiment/5 branch (got ${branch})`);
+  if (branch.startsWith("experiment/")) {
+    assert.match(branch, /^experiment\/5/, `experiment run must be on experiment/5 branch (got ${branch})`);
+  }
 
   // The throwaway-collection policy the whole run honors (dev collections forbidden).
   const isThrowaway = (name) =>
