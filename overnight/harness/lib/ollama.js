@@ -32,7 +32,10 @@ function extractJson(text) {
   } catch {
     /* fall through */
   }
-  const m = cleaned.match(/[{[][\s\S]*[\]}]/);
+  // Non-greedy: match the FIRST balanced-ish JSON span, not everything between the
+  // first "{" and the last "}". Greedy matching turns `...{"a":1}...{"b":2}...` into
+  // one invalid blob and fails even though a valid object exists earlier.
+  const m = cleaned.match(/[{[][\s\S]*?[\]}]/);
   if (m) {
     try {
       return JSON.parse(m[0]);

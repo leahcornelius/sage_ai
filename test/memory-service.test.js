@@ -62,6 +62,21 @@ function createMnemosyneStub() {
   const entries = [];
   return {
     entries,
+    embeddings: {
+      // Deterministic stub vector; dimension is irrelevant to these unit tests.
+      async embed() {
+        return new Array(8).fill(0);
+      },
+    },
+    db: {
+      // storeEpisodic writes raw points via db.store (Experiment-4 merge fix),
+      // bypassing fullStorePipeline's dedup/merge. Mirror the record shape the
+      // assertions inspect (text + the cell fields incl. metadata).
+      async store(text, _vector, cell = {}) {
+        entries.push({ text, ...cell });
+        return { id: `m-${entries.length}` };
+      },
+    },
     async store(payload) {
       entries.push(payload);
       return `m-${entries.length}`;
@@ -115,7 +130,11 @@ test("memory service deduplicates repeated message ingestion by messageId", asyn
   });
 
   assert.equal(mnemosyneClient.entries.length, 1);
-  assert.match(mnemosyneClient.entries[0].text, /message_id:/);
+  // Embedding hygiene (Exp2): the CLEAN message content is embedded; structural
+  // fields like message_id live in metadata, NOT in the embedded text. (Pre-Exp2
+  // this asserted /message_id:/ in the text — stale since the hygiene fix.)
+  assert.equal(mnemosyneClient.entries[0].text, "I like tea");
+  assert.doesNotMatch(mnemosyneClient.entries[0].text, /message_id:/);
 });
 
 test("memory service rejects memory writes from non-whitelisted tools", async () => {

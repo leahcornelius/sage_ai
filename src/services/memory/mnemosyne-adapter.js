@@ -1,3 +1,7 @@
+import crypto from "node:crypto";
+
+import { classifyMemory } from "mnemosy-ai";
+
 function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
   const adapterLogger = logger.child({ component: "mnemosyne-adapter" });
   const enabled = config.memory.mode !== "off" && Boolean(mnemosyneClient);
@@ -26,6 +30,7 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
 
     const recalled = await mnemosyneClient.recall({
       query: `message_id:${messageId}`,
+      limit: 1,
       topK: 1,
     });
     const exists = Array.isArray(recalled)
@@ -49,6 +54,19 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
       return null;
     }
 
+    // SECRET GUARD: the raw db.store path below bypasses mnemosy-ai's
+    // fullStorePipeline, which refuses to persist secret-classified text
+    // (returns { action: "blocked_secret" }). Re-apply that classifier here so
+    // the raw episodic store preserves the documented refusal instead of making
+    // passwords/tokens/keys durable and retrievable. Fail closed: drop the turn.
+    if (classifyMemory(messageText) === "secret") {
+      adapterLogger.warn(
+        { scopeKey, messageId },
+        "storeEpisodic dropped a secret-classified turn (raw store secret guard)"
+      );
+      return null;
+    }
+
     // Embedding hygiene: embed the CLEAN message content, not a boilerplate-laden
     // string. Previously the stored text prepended ~60-80 tokens of structural tags
     // ([scope][conversation][role][turn][message_id:HASH][timestamp]) which dominated
@@ -58,20 +76,46 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     // cosine is driven by content while scope/turn/etc. remain available — e.g. for
     // the scope filter, which reads metadata.scopeKey. This is a principled,
     // unconditional production fix (no flag): content should drive retrieval.
-    const memoryId = await mnemosyneClient.store({
-      text: messageText,
-      category: "episodic",
+    const metadata = {
+      memoryClass: "episodic",
+      scopeKey,
+      conversationId,
+      role,
+      turnIndex,
+      messageId,
+      timestamp,
+    };
+
+    // Episodic turns are raw conversation events and must NEVER be semantically
+    // merged with each other, so write the point DIRECTLY via mnemosy-ai's raw
+    // QdrantDB handle (db.store), unconditionally. This is the proper fix for the
+    // Experiment-3 merge bug (formerly behind the bench-only `episodicRawStore`
+    // flag, now the only path).
+    //
+    // mnemosyneClient.store() routes through fullStorePipeline, which runs an
+    // UNCONDITIONAL 0.85/0.92-cosine dedup/merge with no off switch (mnemosy-ai
+    // dist/index.js:186-247): on a hit it keeps the LATER turn's text, soft-deletes
+    // the earlier point, and overwrites its metadata (dropping scopeKey). The bury
+    // mechanic plants gold early, so the gold is the merge loser — soft-deleted
+    // before any retrieval runs. For N intentionally-similar distinct turns the
+    // store collapses to far fewer live points. The raw path stores every turn as a
+    // distinct live point and preserves metadata.scopeKey.
+    //
+    // KNOWN CONSEQUENCE (intentional, documented in MEMORY_CONTRACTS.md): the raw
+    // path bypasses fullStorePipeline's bm25Index.addDocument (dist/index.js:293),
+    // so raw-stored episodic points are VECTOR-ONLY — absent from the in-process
+    // BM25 lexical index (which is private to mnemosy-ai and only re-bootstrapped
+    // from Qdrant at client startup). Restoring episodic BM25 is a deferred,
+    // harness-level spike (re-bootstrap post-populate), not done here.
+    const vector = await mnemosyneClient.embeddings.embed(messageText);
+    const cell = await mnemosyneClient.db.store(messageText, vector, {
+      memoryType: "semantic",
+      classification: "public",
+      scope: "public",
       eventTime: timestamp,
-      metadata: {
-        memoryClass: "episodic",
-        scopeKey,
-        conversationId,
-        role,
-        turnIndex,
-        messageId,
-        timestamp,
-      },
+      metadata,
     });
+    const memoryId = cell?.id || null;
     seenMessageIds.add(messageId);
     rememberEpisodic(scopeKey, {
       text: messageText,
@@ -90,31 +134,80 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
 
     const results = [];
     for (const rawFact of facts) {
-      const normalized = normalizeFact(rawFact, scopeKey, canonicalFacts);
-      const storageText = [
-        `[scope:${scopeKey}]`,
-        `[fact_key:${normalized.factKey}]`,
-        `[version:${normalized.version}]`,
-        `[status:${normalized.status}]`,
-        `[confidence:${normalized.confidence ?? "unknown"}]`,
-        `[event_time:${normalized.eventTime || "unknown"}]`,
-        `[ingested_at:${normalized.ingestedAt}]`,
-        normalized.text,
-      ].join(" ");
+      const text = typeof rawFact?.text === "string" ? rawFact.text.trim() : "";
+      if (!text) continue;
 
-      const memoryId = await mnemosyneClient.store({
-        text: storageText,
-        category: normalized.category || "semantic",
-        ...(normalized.eventTime ? { eventTime: normalized.eventTime } : {}),
-        ...(normalized.confidence !== null ? { importance: normalized.confidence } : {}),
+      // SECRET GUARD (see storeEpisodic): the raw db.store path bypasses
+      // fullStorePipeline's secret classifier, so re-apply it and skip any fact
+      // that classifies as secret rather than persisting it as public.
+      if (classifyMemory(text) === "secret") {
+        adapterLogger.warn(
+          { scopeKey },
+          "upsertSemanticFacts skipped a secret-classified fact (raw store secret guard)"
+        );
+        continue;
+      }
+
+      const factKey =
+        rawFact.factKey ||
+        crypto.createHash("sha256").update(`${scopeKey}|${text.toLowerCase()}`).digest("hex");
+      const version =
+        Number.isInteger(rawFact.version) && rawFact.version > 0 ? rawFact.version : 1;
+      const status = rawFact.status || "active";
+      const category = rawFact.category || "semantic";
+      const eventTime = rawFact.eventTime || null;
+      const confidence = Number.isFinite(rawFact.confidence) ? rawFact.confidence : null;
+
+      // CLEAN-FACT HYGIENE (Experiment 5 — resolves D3.1): embed the fact TEXT ONLY.
+      // The previous path prepended ~7 structural tags ([scope][fact_key][version]…)
+      // into the embedded string, polluting the vector exactly like the episodic
+      // embedding-hygiene bug Exp2 fixed. Structural fields now live in the Qdrant
+      // payload `metadata` (NOT embedded), so the cosine is driven by fact content
+      // while scopeKey/factKey/etc. remain available for the scope filter.
+      //
+      // RAW STORE (Experiment 4 merge-bug fix, now applied to the semantic path):
+      // write the point DIRECTLY via mnemosy-ai's raw db.store, bypassing
+      // fullStorePipeline's UNCONDITIONAL 0.85/0.92 dedup/merge. The merge would
+      // soft-delete distinct facts and overwrite metadata (dropping scopeKey) — both
+      // corrupts the count and breaks the scope filter. Distinct atomic facts are NOT
+      // duplicates: store every one as a live, scope-tagged point. They are tagged
+      // metadata.memoryClass="semantic_fact" so they live in the same shared
+      // collection as episodic turns and are returned by the scoped semantic search
+      // (db.search filtered on metadata.scopeKey) IN ADDITION to the raw episodic ring
+      // — the clean-fact layer the buried-gold experiment exists to test.
+      const vector = await mnemosyneClient.embeddings.embed(text);
+      const cell = await mnemosyneClient.db.store(text, vector, {
+        memoryType: "semantic",
+        classification: "public",
+        scope: "public",
+        ...(eventTime ? { eventTime } : {}),
+        ...(confidence !== null ? { importance: confidence } : {}),
+        metadata: {
+          memoryClass: "semantic_fact",
+          scopeKey,
+          factKey,
+          version,
+          status,
+          category,
+          sourceMessageId: rawFact.sourceMessageId || rawFact.messageId || null,
+          sourceTurnIds: Array.isArray(rawFact.sourceTurnIds) ? rawFact.sourceTurnIds : [],
+          eventTime,
+          ingestedAt: rawFact.ingestedAt || new Date().toISOString(),
+          source: (rawFact.metadata && rawFact.metadata.source) || "local-cleanfact",
+        },
       });
 
+      // Keep identity-category facts available to getIdentityContext (unchanged behaviour).
+      if (isIdentityCategory(category)) {
+        canonicalFacts.set(`${scopeKey}|${factKey}`, { text, scopeKey, category });
+      }
+
       results.push({
-        memoryId: memoryId || normalized.factId,
-        factId: normalized.factId,
-        factKey: normalized.factKey,
-        version: normalized.version,
-        status: normalized.status,
+        memoryId: cell?.id || factKey,
+        factId: rawFact.factId || factKey,
+        factKey,
+        version,
+        status,
       });
     }
 
@@ -125,34 +218,36 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     if (!enabled || !query) {
       return [];
     }
-    // mnemosy-ai's recall() honors `limit` (defaults to 5) and ignores `topK`,
-    // so passing only `topK` left semanticTopK inert. Pass `limit` so the
-    // semanticTopK read-side knob actually controls the semantic result count.
+    // scopeFilter selects between two semantic-recall paths that share the same
+    // embedder/vector space, so the only difference is WHERE the search happens:
     //
-    // scopeFilter (default OFF): mnemosy-ai's recall() searches the whole shared
-    // collection with no scope param, so a different scope's lookalike can
-    // outrank the in-scope gold (cross-scope bleed). When enabled, over-fetch and
-    // keep only items tagged with the requesting scope, so semanticTopK in-scope
-    // hits still survive. The `[scope:<scopeKey>]` tag lives in the raw stored
-    // text and is stripped by cleanStoredText, so we must filter BEFORE mapping.
-    const limit = scopeFilter ? Math.min(200, Math.max(topK, 1) * 8) : topK;
-    const recalled = await mnemosyneClient.recall({
-      query,
-      limit,
-      topK,
-    });
-    let results = Array.isArray(recalled) ? recalled : [];
+    //   OFF (default): mnemosy-ai's recall() searches the whole shared collection
+    //     with no scope param, so a different scope's lookalike can outrank the
+    //     in-scope gold (cross-scope bleed). recall() honors `limit` (not `topK`),
+    //     so pass limit=topK to make the semanticTopK knob control the count.
+    //
+    //   ON: search the Qdrant collection DIRECTLY, restricted to in-scope points
+    //     via a payload filter on metadata.scopeKey (where storeEpisodic puts the
+    //     scope — embedding hygiene moved it out of the embedded text). Within a
+    //     scope the in-scope gold ranks high; globally it is swamped by ~similar
+    //     cross-scope lookalikes that a post-filter could never recover (they keep
+    //     the gold out of mnemosy-ai's candidate set entirely). mnemosy-ai exposes
+    //     its own QdrantDB + embedder, so this reuses Sage's embedder (query and
+    //     stored vectors share a space) with NO extra dependency. Raw vector search:
+    //     no rerank/dedup/query-rewrite; minScore stays recall's 0.3 default
+    //     (within-scope cosines clear it). Mirrors mnemosy-ai's own search(query,
+    //     filters) helper, but limited to semanticTopK.
+    let results;
     if (scopeFilter && scopeKey) {
-      const scopeTag = `[scope:${scopeKey}]`;
-      results = results
-        .filter((memory) => {
-          const entry = memory?.entry || {};
-          // Scope now lives in the metadata payload (embedding hygiene moved the
-          // structural tags out of the embedded text). Fall back to the legacy
-          // in-text tag for any older/mixed records.
-          return entry.metadata?.scopeKey === scopeKey || String(entry.text || "").includes(scopeTag);
-        })
-        .slice(0, topK);
+      const vector = await mnemosyneClient.embeddings.embed(query);
+      const collection = mnemosyneClient.config.sharedCollection;
+      const hits = await mnemosyneClient.db.search(collection, vector, topK, 0.3, {
+        "metadata.scopeKey": scopeKey,
+      });
+      results = Array.isArray(hits) ? hits : [];
+    } else {
+      const recalled = await mnemosyneClient.recall({ query, limit: topK, topK });
+      results = Array.isArray(recalled) ? recalled : [];
     }
     return results.map((memory) => {
       const entry = memory?.entry || {};
@@ -195,12 +290,19 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     }
     const recalled = await mnemosyneClient.recall({
       query: scopeKey,
+      limit: 1,
       topK: 1,
     });
     return Array.isArray(recalled) && recalled.length > 0;
   }
 
   async function getEpisodicSummaries({ scopeKey, maxItems = 5 }) {
+    // Honor zero: episodicTopK=0 is the benchmark's way to disable the episodic
+    // channel, so return nothing (previously a Math.max(1, …) floor leaked one
+    // recent turn even when callers asked for none — Exp4 characterization).
+    if (Number.isInteger(maxItems) && maxItems <= 0) {
+      return [];
+    }
     const entries = recentEpisodicByScope.get(scopeKey) || [];
     return entries
       .slice(-Math.max(1, maxItems))
@@ -217,6 +319,7 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     }
     await mnemosyneClient.recall({
       query: "healthcheck",
+      limit: 1,
       topK: 1,
     });
     return "OK";
@@ -235,81 +338,11 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
   };
 }
 
-function normalizeFact(fact, scopeKey, canonicalFacts) {
-  const now = new Date().toISOString();
-  const normalized = {
-    ...fact,
-    scopeKey,
-    ingestedAt: fact.ingestedAt || now,
-    confidence: normalizeConfidence(fact.confidence),
-    category: fact.category || "semantic",
-    status: fact.status || "active",
-    version: Number.isInteger(fact.version) && fact.version > 0 ? fact.version : 1,
-    text: typeof fact.text === "string" ? fact.text.trim() : "",
-  };
-
-  const conflictKey = `${scopeKey}|${normalized.subject || ""}|${normalized.predicate || ""}`;
-  const previous = canonicalFacts.get(conflictKey);
-  if (!previous) {
-    canonicalFacts.set(conflictKey, normalized);
-    return normalized;
-  }
-
-  const winner = compareFacts(previous, normalized) >= 0 ? previous : normalized;
-  if (winner === normalized) {
-    normalized.version = previous.version + 1;
-    normalized.status = "active";
-    canonicalFacts.set(conflictKey, normalized);
-    return normalized;
-  }
-
-  normalized.version = previous.version + 1;
-  normalized.status = "conflict";
-  return normalized;
-}
-
-function compareFacts(existing, incoming) {
-  const existingEvent = asTimestamp(existing.eventTime);
-  const incomingEvent = asTimestamp(incoming.eventTime);
-  if (incomingEvent !== existingEvent) {
-    return incomingEvent - existingEvent;
-  }
-
-  const existingIngested = asTimestamp(existing.ingestedAt);
-  const incomingIngested = asTimestamp(incoming.ingestedAt);
-  if (incomingIngested !== existingIngested) {
-    return incomingIngested - existingIngested;
-  }
-
-  const existingConfidence = Number.isFinite(existing.confidence) ? existing.confidence : -1;
-  const incomingConfidence = Number.isFinite(incoming.confidence) ? incoming.confidence : -1;
-  if (incomingConfidence !== existingConfidence) {
-    return incomingConfidence - existingConfidence;
-  }
-
-  return 0;
-}
-
-function asTimestamp(value) {
-  if (!value) {
-    return -1;
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? -1 : date.getTime();
-}
-
-function normalizeConfidence(value) {
-  if (!Number.isFinite(value)) {
-    return null;
-  }
-  if (value <= 0) {
-    return 0;
-  }
-  if (value >= 1) {
-    return 1;
-  }
-  return Number(value.toFixed(4));
-}
+// NOTE (Experiment 5): the former normalizeFact / compareFacts / asTimestamp /
+// normalizeConfidence helpers (mem0-era cross-fact conflict + versioning) were
+// removed. The clean-fact path stores each distinct atomic fact as its own raw,
+// scope-tagged point and does NOT run cross-fact conflict resolution — distinct
+// atomic facts are not duplicates. See upsertSemanticFacts above.
 
 function isIdentityCategory(category) {
   const normalized = String(category || "").toLowerCase();

@@ -1,0 +1,92 @@
+{
+  "iterations": 6,
+  "keeps": 3,
+  "reverts": 3,
+  "gridConfigs": 90,
+  "top": [
+    {
+      "config": {
+        "semanticTopK": 20,
+        "episodicTopK": 10,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 4000
+      },
+      "utility": 0.40846153846153843,
+      "meanRecall": 0.5,
+      "meanTokens": 1830.7692307692307,
+      "meanMrr": 0.07692307692307693,
+      "decision": "keep",
+      "iteration": "gate3-forced-keep"
+    },
+    {
+      "config": {
+        "semanticTopK": 20,
+        "episodicTopK": 10,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 3900
+      },
+      "utility": 0.4084019230769231,
+      "meanRecall": 0.5,
+      "meanTokens": 1831.9615384615386,
+      "meanMrr": 0.07692307692307693,
+      "decision": "keep",
+      "iteration": 1
+    },
+    {
+      "config": {
+        "semanticTopK": 24,
+        "episodicTopK": 10,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 3900
+      },
+      "utility": 0.4083788461538461,
+      "meanRecall": 0.5,
+      "meanTokens": 1832.423076923077,
+      "meanMrr": 0.07692307692307693,
+      "decision": "revert",
+      "iteration": 2
+    },
+    {
+      "config": {
+        "semanticTopK": 20,
+        "episodicTopK": 6,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 3900
+      },
+      "utility": 0.2589923076923077,
+      "meanRecall": 0.34615384615384615,
+      "meanTokens": 1743.2307692307693,
+      "meanMrr": 0.07692307692307693,
+      "decision": "revert",
+      "iteration": 3
+    },
+    {
+      "config": {
+        "semanticTopK": 5,
+        "episodicTopK": 3,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 1200
+      },
+      "utility": 0.18657307692307692,
+      "meanRecall": 0.23076923076923078,
+      "meanTokens": 883.9230769230769,
+      "meanMrr": 0.07692307692307693,
+      "decision": "keep",
+      "iteration": 0
+    },
+    {
+      "config": {
+        "semanticTopK": 0,
+        "episodicTopK": 0,
+        "graphMaxResults": 20,
+        "contextMaxTokens": 200
+      },
+      "utility": -0.0025384615384615385,
+      "meanRecall": 0,
+      "meanTokens": 50.76923076923077,
+      "meanMrr": 0,
+      "decision": "revert",
+      "iteration": "gate3-forced-revert"
+    }
+  ]
+}
