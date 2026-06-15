@@ -73,8 +73,16 @@ test(
       await client.store({ text: turn.messageText, metadata: { scopeKey: SCOPE, turnIndex: turn.turnIndex } });
     }
 
-    const live = await countLive(collections.shared);
-    const dead = await countDeleted(collections.shared);
+    // Poll for eventual write visibility: mnemosy-ai's store() schedules the
+    // soft-delete asynchronously, so an immediate read can miss it and flake.
+    let live = 0;
+    let dead = 0;
+    for (let i = 0; i < 40; i++) {
+      live = await countLive(collections.shared);
+      dead = await countDeleted(collections.shared);
+      if (live + dead >= N) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
     t.diagnostic(`merge path: live=${live} dead=${dead} of N=${N}`);
 
     assert.ok(live < N, `merge collapses near-dups: expected live < ${N}, got ${live}`);

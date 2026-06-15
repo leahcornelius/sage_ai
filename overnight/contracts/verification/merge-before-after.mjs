@@ -13,7 +13,10 @@
 // Note: the OLD path's exact live count depends on write-visibility timing (mnemosy-ai's
 // db.store doesn't actually wait), so a small inter-store delay lets each store's internal
 // dedup search see prior writes — reproducing the production condition where merges fire.
-// Run: node overnight/contracts/verification/merge-before-after.mjs
+// Run: node overnight/contracts/verification/merge-before-after.mjs [path/to/dataset.json]
+//   The dataset is resolved as: CLI arg -> SAGE_CONTRACT_DATASET env -> the most
+//   recent overnight/runs/*/dataset.json. (Not pinned to one run id, so it keeps
+//   working after run dirs are archived/moved.)
 
 import fs from "node:fs";
 import path from "node:path";
@@ -30,10 +33,28 @@ import {
   dropCollections,
 } from "../harness.mjs";
 
-const DATASET = path.resolve(
-  process.cwd(),
-  "overnight/runs/r2026061420071_dcb6_dry/dataset.json"
-);
+function resolveDataset() {
+  const explicit = process.argv[2] || process.env.SAGE_CONTRACT_DATASET;
+  if (explicit) return path.resolve(process.cwd(), explicit);
+  // Auto-discover: newest run dir (lexically last id) that has a dataset.json.
+  const runsDir = path.resolve(process.cwd(), "overnight/runs");
+  const candidates = fs.existsSync(runsDir)
+    ? fs
+        .readdirSync(runsDir)
+        .map((d) => path.join(runsDir, d, "dataset.json"))
+        .filter((p) => fs.existsSync(p))
+        .sort()
+    : [];
+  if (candidates.length === 0) {
+    throw new Error(
+      "No dataset.json found. Pass one explicitly: " +
+        "node overnight/contracts/verification/merge-before-after.mjs <dataset.json>"
+    );
+  }
+  return candidates[candidates.length - 1];
+}
+
+const DATASET = resolveDataset();
 const logger = pino({ level: "silent" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -53,34 +74,37 @@ async function liveStats(collection, markers) {
 
 async function runOldMergePath(ingests, markers) {
   const { client, collections } = await buildIsolatedClient();
-  for (let i = 0; i < ingests.length; i++) {
-    const ing = ingests[i];
-    await client.store({
-      text: ing.text,
-      category: "episodic",
-      eventTime: new Date(1_700_000_000_000 + i * 1000).toISOString(),
-      metadata: {
-        memoryClass: "episodic",
-        scopeKey: ing.scope,
-        conversationId: ing.conversationId,
-        turnIndex: ing.turnIndex,
-        messageId: `${ing.scope}-${ing.turnIndex}`,
-      },
-    });
-    await sleep(25); // let the async write propagate so the next dedup search sees it
+  try {
+    for (let i = 0; i < ingests.length; i++) {
+      const ing = ingests[i];
+      await client.store({
+        text: ing.text,
+        category: "episodic",
+        eventTime: new Date(1_700_000_000_000 + i * 1000).toISOString(),
+        metadata: {
+          memoryClass: "episodic",
+          scopeKey: ing.scope,
+          conversationId: ing.conversationId,
+          turnIndex: ing.turnIndex,
+          messageId: `${ing.scope}-${ing.turnIndex}`,
+        },
+      });
+      await sleep(25); // let the async write propagate so the next dedup search sees it
+    }
+    // Wait for the dust to settle (live count stable across two reads).
+    let prev = -1;
+    for (let t = 0; t < 40; t++) {
+      const live = await countLive(collections.shared);
+      if (live === prev) break;
+      prev = live;
+      await sleep(300);
+    }
+    const stats = await liveStats(collections.shared, markers);
+    const deleted = await countDeleted(collections.shared);
+    return { ...stats, deleted, ingested: ingests.length };
+  } finally {
+    await dropCollections(collections);
   }
-  // Wait for the dust to settle (live count stable across two reads).
-  let prev = -1;
-  for (let t = 0; t < 40; t++) {
-    const live = await countLive(collections.shared);
-    if (live === prev) break;
-    prev = live;
-    await sleep(300);
-  }
-  const stats = await liveStats(collections.shared, markers);
-  const deleted = await countDeleted(collections.shared);
-  await dropCollections(collections);
-  return { ...stats, deleted, ingested: ingests.length };
 }
 
 async function runNewRawPath(ingests, markers) {
@@ -90,23 +114,26 @@ async function runNewRawPath(ingests, markers) {
     config: { memory: { mode: "soft" } },
     logger,
   });
-  for (let i = 0; i < ingests.length; i++) {
-    const ing = ingests[i];
-    await adapter.storeEpisodic({
-      scopeKey: ing.scope,
-      conversationId: ing.conversationId,
-      role: "user",
-      messageText: ing.text,
-      messageId: `${ing.scope}-${ing.turnIndex}`,
-      turnIndex: ing.turnIndex,
-      timestamp: new Date(1_700_000_000_000 + i * 1000).toISOString(),
-    });
+  try {
+    for (let i = 0; i < ingests.length; i++) {
+      const ing = ingests[i];
+      await adapter.storeEpisodic({
+        scopeKey: ing.scope,
+        conversationId: ing.conversationId,
+        role: "user",
+        messageText: ing.text,
+        messageId: `${ing.scope}-${ing.turnIndex}`,
+        turnIndex: ing.turnIndex,
+        timestamp: new Date(1_700_000_000_000 + i * 1000).toISOString(),
+      });
+    }
+    await settle(collections.shared, ingests.length, { timeoutMs: 30_000 });
+    const stats = await liveStats(collections.shared, markers);
+    const deleted = await countDeleted(collections.shared);
+    return { ...stats, deleted, ingested: ingests.length };
+  } finally {
+    await dropCollections(collections);
   }
-  await settle(collections.shared, ingests.length, { timeoutMs: 30_000 });
-  const stats = await liveStats(collections.shared, markers);
-  const deleted = await countDeleted(collections.shared);
-  await dropCollections(collections);
-  return { ...stats, deleted, ingested: ingests.length };
 }
 
 const ingests = loadIngests();

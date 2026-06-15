@@ -60,10 +60,16 @@ function uniqueCollectionNames() {
   };
 }
 
+const DEFAULT_HTTP_TIMEOUT_MS = 8000;
+
 async function qdrantRequest(path, options = {}) {
+  // Bounded timeout: a stalled socket must fail promptly rather than hang the whole
+  // `npm test` run on a single request.
+  const { timeoutMs = DEFAULT_HTTP_TIMEOUT_MS, ...fetchOptions } = options;
   const res = await fetch(`${QDRANT_URL}${path}`, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...fetchOptions,
+    signal: fetchOptions.signal || AbortSignal.timeout(timeoutMs),
+    headers: { "Content-Type": "application/json", ...(fetchOptions.headers || {}) },
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -141,7 +147,7 @@ async function dropCollections(collections) {
   for (const name of Object.values(collections)) {
     assertContractCollection(name);
     try {
-      await fetch(`${QDRANT_URL}/collections/${name}`, { method: "DELETE" });
+      await qdrantRequest(`/collections/${name}`, { method: "DELETE", timeoutMs: 4000 });
     } catch {
       /* best-effort teardown */
     }
