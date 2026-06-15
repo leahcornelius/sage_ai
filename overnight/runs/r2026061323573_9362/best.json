@@ -1,0 +1,13 @@
+{
+  "config": {
+    "semanticTopK": 20,
+    "episodicTopK": 16,
+    "graphMaxResults": 20,
+    "contextMaxTokens": 4000
+  },
+  "utility": 0.6658884615384616,
+  "meanRecall": 0.7692307692307693,
+  "meanTokens": 2066.846153846154,
+  "meanMrr": 0,
+  "iteration": 17
+}

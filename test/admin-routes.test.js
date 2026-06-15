@@ -7,11 +7,11 @@ import { buildApp } from "../src/app.js";
 const logger = pino({ level: "silent" });
 const authHeader = { authorization: "Bearer bench-key" };
 
-function createConfig({ adminEnabled = true } = {}) {
+function createConfig({ adminEnabled = true, host = "127.0.0.1" } = {}) {
   return {
     auth: { apiKey: "bench-key" },
     admin: { enabled: adminEnabled },
-    server: { corsOrigin: null },
+    server: { corsOrigin: null, host },
     openai: { defaultModel: "gpt-4o-mini" },
     memory: {
       semanticTopK: 5,
@@ -66,6 +66,29 @@ async function buildAdminApp(configOpts) {
   });
   return { app, memoryService };
 }
+
+test("buildApp refuses to boot when admin is enabled on a non-loopback host", async () => {
+  const memoryService = createMemoryServiceStub();
+  await assert.rejects(
+    () =>
+      buildApp({
+        config: createConfig({ adminEnabled: true, host: "0.0.0.0" }),
+        logger,
+        services: { memoryService, modelService: {}, chatService: {}, promptService: {} },
+      }),
+    /requires SAGE_HOST to be a loopback address/
+  );
+});
+
+test("buildApp boots with admin disabled even on a non-loopback host", async () => {
+  const memoryService = createMemoryServiceStub();
+  const app = await buildApp({
+    config: createConfig({ adminEnabled: false, host: "0.0.0.0" }),
+    logger,
+    services: { memoryService, modelService: {}, chatService: {}, promptService: {} },
+  });
+  assert.ok(app, "app builds when admin routes are not registered");
+});
 
 test("admin routes are NOT registered when admin.enabled is false", async () => {
   const { app } = await buildAdminApp({ adminEnabled: false });

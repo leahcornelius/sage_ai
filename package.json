@@ -9,6 +9,7 @@
     "dev": "node --watch src/index.js",
     "chat": "node cli/sage-chat.mjs",
     "test": "node --test",
+    "test:contracts": "node --test overnight/contracts/*.contract.test.mjs",
     "migrate:importance": "node scripts/migrate-importance-scale.js",
     "verify:memory-deps": "node scripts/verify-memory-deps.js"
   },

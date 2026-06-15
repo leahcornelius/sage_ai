@@ -128,6 +128,58 @@ test("chat service mirrors conversation history and appends assistant replies", 
   assert.equal(appended[0].content, "Done");
 });
 
+test("read-only mode (skipMemoryWrite) retrieves context but writes nothing", async () => {
+  let processCalls = 0;
+  let retrieveCalls = 0;
+
+  const service = createChatService({
+    openaiClient: {
+      chat: {
+        completions: {
+          create: async () => ({
+            id: "chatcmpl-test",
+            object: "chat.completion",
+            created: 1,
+            model: "gpt-5.2",
+            choices: [{ index: 0, message: { role: "assistant", content: "Answer" }, finish_reason: "stop" }],
+          }),
+        },
+      },
+    },
+    memoryService: {
+      retrieveContext: async () => {
+        retrieveCalls += 1;
+        return { contextBlock: "Memory context block", cacheHit: false, partial: false };
+      },
+      processMessage: async () => {
+        processCalls += 1;
+      },
+    },
+    promptService: { getActiveSystemPrompt: () => "Base system prompt" },
+    modelService: { assertModelAvailable: async () => {} },
+    logger,
+  });
+
+  await service.createChatCompletion({
+    requestBody: {
+      model: "gpt-5.2",
+      chatId: "scored-scope",
+      messages: [{ role: "user", content: "What is the route code?" }],
+      stream: false,
+      upstreamOptions: {},
+      lastUserMessage: "What is the route code?",
+      skipMemoryWrite: true,
+    },
+    signal: AbortSignal.timeout(1000),
+    logger,
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(retrieveCalls, 1, "context is still retrieved in read-only mode");
+  assert.equal(processCalls, 0, "no user-turn write or assistant ingestion into the scope");
+});
+
 test("chat service streams chunks and ingests only final assistant memory", async () => {
   let processCalls = 0;
 

@@ -23,6 +23,16 @@ function benchEnv({ collection, port, benchKey, qdrantUrl, cacheUrl, graphUrl })
     MNEMOSYNE_COLLECTION_NAME: collection,
     SAGE_MEM0_ENABLED: "false",
     SAGE_ZEP_ENABLED: "false",
+    // Experiment 5: enable the LOCAL clean-fact extractor (qwen3:14b/Ollama) — the
+    // $0 replacement for cloud mem0 (which stays OFF). Per-turn extraction during
+    // /admin/ingest -> processMessage populates clean, scope-tagged semantic_fact
+    // points in addition to the raw episodic ring. Generous ingest-side timeout
+    // because the local 14B model is slow.
+    SAGE_CLEANFACT_ENABLED: "true",
+    SAGE_CLEANFACT_MODEL: "qwen3:14b",
+    SAGE_CLEANFACT_OLLAMA_URL: "http://127.0.0.1:11434",
+    SAGE_CLEANFACT_SEED: "7",
+    SAGE_MEMORY_TIMEOUT_CLEANFACT_MS: "30000",
     // Query cache is disabled via SAGE_REDIS_ENABLED=false: when the redis adapter
     // is disabled the controller short-circuits getQueryContext/setQueryContext
     // entirely (never reaching the in-memory fallback), so cacheHit is always false.
@@ -36,6 +46,9 @@ function benchEnv({ collection, port, benchKey, qdrantUrl, cacheUrl, graphUrl })
     SAGE_MEMORY_MODE: "soft",
     // P1 scope-filter starts OFF; the loop toggles it live via /admin/memory-config.
     SAGE_MEMORY_SCOPE_FILTER_ENABLED: "false",
+    // NOTE: episodic raw-store is no longer a flag — Experiment 4 made storeEpisodic
+    // always bypass mnemosy-ai's dedup/merge (the correct behaviour for raw events).
+    // The former SAGE_MEMORY_EPISODIC_RAW_STORE=true setting was removed (now a no-op).
     SAGE_HOST: "127.0.0.1",
     SAGE_PORT: String(port),
     SAGE_ADMIN_ENABLED: "true",
@@ -158,8 +171,19 @@ const GENEROUS_CONFIG = { semanticTopK: 30, episodicTopK: 20, graphMaxResults: 2
 
 // Populate-completeness (spec §5 step 4): every gold marker retrievable at
 // generous K. Returns { complete, missing[] }.
+//
+// Experiment 3 (V0.3): verify through the SCOPED channel (scopeFilter ON) — the
+// channel the within-scope payload-filter actually uses. The unfiltered channel
+// cannot surface a specific buried fact among homogeneous cross-scope lookalikes
+// (the Experiment-2 finding: ~49/60 missing), so an unfiltered completeness check
+// would halt here before the reframed Gate 1b can adjudicate. This is a
+// MEASUREMENT-ONLY reframe (the same scoped-channel reframe as Gate 1b); the only
+// behavioural change is the payload-filter itself. The ~100% bar is unchanged: if
+// scoped retrieval still cannot carry the gold at generous K, completeness halts —
+// a real "scoped retrieval doesn't transfer" finding, accepted, not tuned. The
+// unfiltered channel is still measured honestly as Gate 1b's B_unscoped contrast.
 async function verifyCompleteness({ client, dataset, model, concurrency = 5 }) {
-  await client.adminMemoryConfig(GENEROUS_CONFIG);
+  await client.adminMemoryConfig({ ...GENEROUS_CONFIG, scopeFilter: 1 });
   const questions = [...dataset.dev, ...dataset.heldout, dataset.gate2.question].filter(
     (q) => q.requiredMarkers.length > 0
   );

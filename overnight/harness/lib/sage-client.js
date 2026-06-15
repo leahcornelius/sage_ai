@@ -89,10 +89,16 @@ class SageClient {
   }
 
   // Used ONLY by the capped checkpoint. Real upstream model call.
-  async chatCompletion({ model, messages, chatId, timeoutMs = 60000 }) {
+  // skipMemoryWrite=true puts Sage in read-only mode (retrieve, do not ingest) so a
+  // scored scope is never contaminated by the checkpoint's own question/answer turns.
+  async chatCompletion({ model, messages, chatId, skipMemoryWrite = false, timeoutMs = 60000 }) {
     return fetchJson(`${this.baseUrl}/v1/chat/completions`, {
       method: "POST",
-      headers: { ...this._authHeaders, "x-openwebui-chat-id": chatId },
+      headers: {
+        ...this._authHeaders,
+        "x-openwebui-chat-id": chatId,
+        ...(skipMemoryWrite ? { "x-sage-skip-memory-write": "1" } : {}),
+      },
       body: { model, messages, stream: false },
       timeoutMs,
     });
@@ -125,6 +131,24 @@ class QdrantClient {
       if (error instanceof HttpError && error.status === 404) return null;
       throw error;
     }
+  }
+
+  // Raw vector search mirroring mnemosy-ai's QdrantDB.search (always filters
+  // deleted=false; applies a minScore floor; with_payload). `extraMust` adds
+  // payload-match clauses, e.g. [{ key: "metadata.scopeKey", match: { value } }].
+  // Used measurement-only by Gate 1b's B_dbsearch_unscoped control probe (no
+  // extraMust = raw unscoped search) to attribute the scoped-vs-unscoped gap.
+  async search(name, vector, { limit = 5, minScore = 0.3, extraMust = [] } = {}) {
+    const must = [{ key: "deleted", match: { value: false } }, ...extraMust];
+    const res = await fetchJson(`${this.url}/collections/${name}/points/search`, {
+      method: "POST",
+      body: { vector, limit, filter: { must }, with_payload: true },
+      timeoutMs: this.timeoutMs,
+    });
+    const rows = res?.result || [];
+    return rows
+      .filter((r) => r.score >= minScore)
+      .map((r) => ({ text: r.payload?.text || r.payload?.content || "", score: r.score, payload: r.payload || {} }));
   }
 }
 

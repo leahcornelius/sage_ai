@@ -42,16 +42,21 @@ function createChatService({
 
     const userTurnIndex = deriveLastUserAssistantTurnIndex(requestBody.messages);
     const assistantTurnIndex = userTurnIndex + 1;
-    void memoryService.processMessage({
-      conversationId: requestBody.chatId,
-      user: requestBody.user,
-      role: "user",
-      turnIndex: userTurnIndex,
-      messageText: requestBody.lastUserMessage,
-      modelId: requestBody.model,
-      requestId,
-      logger: operationLogger,
-    });
+    // Read-only mode (x-sage-skip-memory-write): retrieve context but do NOT write
+    // the user turn into the scope. Stops the benchmark checkpoint from seeding a
+    // scored scope with its own question/answer turns.
+    if (requestBody.skipMemoryWrite !== true) {
+      void memoryService.processMessage({
+        conversationId: requestBody.chatId,
+        user: requestBody.user,
+        role: "user",
+        turnIndex: userTurnIndex,
+        messageText: requestBody.lastUserMessage,
+        modelId: requestBody.model,
+        requestId,
+        logger: operationLogger,
+      });
+    }
 
     const memoryContextResult = await memoryService.retrieveContext({
       conversationId: requestBody.chatId,
@@ -137,7 +142,7 @@ function createChatService({
       },
       "Processed upstream chat completion response"
     );
-    if (!skipMemoryExtraction) {
+    if (!skipMemoryExtraction && requestBody.skipMemoryWrite !== true) {
       scheduleConversationMemoryIngestion({
         memoryService,
         conversationId: requestBody.chatId,
@@ -164,16 +169,21 @@ function createChatService({
 
     const userTurnIndex = deriveLastUserAssistantTurnIndex(requestBody.messages);
     const assistantTurnIndex = userTurnIndex + 1;
-    void memoryService.processMessage({
-      conversationId: requestBody.chatId,
-      user: requestBody.user,
-      role: "user",
-      turnIndex: userTurnIndex,
-      messageText: requestBody.lastUserMessage,
-      modelId: requestBody.model,
-      requestId,
-      logger: operationLogger,
-    });
+    // Read-only mode (x-sage-skip-memory-write): retrieve context but do NOT write
+    // the user turn into the scope. Stops the benchmark checkpoint from seeding a
+    // scored scope with its own question/answer turns.
+    if (requestBody.skipMemoryWrite !== true) {
+      void memoryService.processMessage({
+        conversationId: requestBody.chatId,
+        user: requestBody.user,
+        role: "user",
+        turnIndex: userTurnIndex,
+        messageText: requestBody.lastUserMessage,
+        modelId: requestBody.model,
+        requestId,
+        logger: operationLogger,
+      });
+    }
 
     const memoryContextResult = await memoryService.retrieveContext({
       conversationId: requestBody.chatId,
@@ -296,16 +306,18 @@ function createChatService({
           },
           "Streaming completion finished; final assistant text is available for post-stream memory ingestion"
         );
-        scheduleConversationMemoryIngestion({
-          memoryService,
-          conversationId: requestBody.chatId,
-          assistantMessage,
-          modelId: requestBody.model,
-          user: requestBody.user,
-          turnIndex: assistantTurnIndex,
-          requestId,
-          logger: operationLogger,
-        });
+        if (requestBody.skipMemoryWrite !== true) {
+          scheduleConversationMemoryIngestion({
+            memoryService,
+            conversationId: requestBody.chatId,
+            assistantMessage,
+            modelId: requestBody.model,
+            user: requestBody.user,
+            turnIndex: assistantTurnIndex,
+            requestId,
+            logger: operationLogger,
+          });
+        }
       }
     }
   }

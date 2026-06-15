@@ -84,7 +84,10 @@ async function registerAdminRoutes(app) {
       typeof body.conversationId === "string" && body.conversationId.trim()
         ? body.conversationId.trim()
         : scope;
-    const turnIndex = Number.isInteger(body.turnIndex) ? body.turnIndex : 0;
+    // Reject negative turn indices: they corrupt turn-ordering metadata on the
+    // memory write. Any non-integer or negative value falls back to 0.
+    const turnIndex =
+      Number.isInteger(body.turnIndex) && body.turnIndex >= 0 ? body.turnIndex : 0;
 
     // Passing user=scope makes the effective scopeKey exactly `scope`
     // (resolveScopeKey prefers a non-empty user). role:"user", no model call.

@@ -1,0 +1,16 @@
+{
+  "runid": "r2026061508531_230d",
+  "startTimeIso": "2026-06-15T07:53:10Z",
+  "spawnCount": 2,
+  "roundsByGate": {
+    "SYNTH_PHASE0": 1,
+    "G1b": 1
+  },
+  "spendUsd": 0,
+  "caps": {
+    "maxSpawns": 20,
+    "maxRoundsPerGate": 3,
+    "wallClockHours": 24,
+    "cloudSpendUsd": 80
+  }
+}
