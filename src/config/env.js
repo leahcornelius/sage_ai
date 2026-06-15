@@ -123,6 +123,14 @@ function createConfig(env = process.env) {
       // (mnemosy-ai's recall() searches the whole shared collection unfiltered).
       // Default OFF so merging changes nothing until deliberately enabled.
       scopeFilter: parseBoolean(env.SAGE_MEMORY_SCOPE_FILTER_ENABLED, false),
+      // When enabled, episodic turns are written DIRECTLY to Qdrant (mnemosy-ai's
+      // raw db.store) instead of through mnemosyneClient.store(), which runs an
+      // unconditional 0.85-cosine dedup/merge that soft-deletes near-duplicate
+      // turns and strips their metadata (incl. scopeKey). Episodic turns are raw
+      // conversation events that must never be merged with each other; merging
+      // them collapses distinct memories and drops scopeKey. Default OFF so
+      // production semantic dedup is unchanged; the benchmark enables it.
+      episodicRawStore: parseBoolean(env.SAGE_MEMORY_EPISODIC_RAW_STORE, false),
       retrievalTimeoutMs: memoryRetrievalTimeoutMs,
       retrievalBudgetMs: memoryRetrievalBudgetMs,
       retrievalWindowMs: memoryRetrievalWindowMs,

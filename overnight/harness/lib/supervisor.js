@@ -36,6 +36,10 @@ function benchEnv({ collection, port, benchKey, qdrantUrl, cacheUrl, graphUrl })
     SAGE_MEMORY_MODE: "soft",
     // P1 scope-filter starts OFF; the loop toggles it live via /admin/memory-config.
     SAGE_MEMORY_SCOPE_FILTER_ENABLED: "false",
+    // Benchmark-only: write episodic turns directly to Qdrant, bypassing mnemosy-ai's
+    // unconditional 0.85 dedup/merge which otherwise soft-deletes the (early-planted)
+    // gold facts and strips scopeKey before any retrieval runs. Production stays OFF.
+    SAGE_MEMORY_EPISODIC_RAW_STORE: "true",
     SAGE_HOST: "127.0.0.1",
     SAGE_PORT: String(port),
     SAGE_ADMIN_ENABLED: "true",
@@ -158,8 +162,19 @@ const GENEROUS_CONFIG = { semanticTopK: 30, episodicTopK: 20, graphMaxResults: 2
 
 // Populate-completeness (spec §5 step 4): every gold marker retrievable at
 // generous K. Returns { complete, missing[] }.
+//
+// Experiment 3 (V0.3): verify through the SCOPED channel (scopeFilter ON) — the
+// channel the within-scope payload-filter actually uses. The unfiltered channel
+// cannot surface a specific buried fact among homogeneous cross-scope lookalikes
+// (the Experiment-2 finding: ~49/60 missing), so an unfiltered completeness check
+// would halt here before the reframed Gate 1b can adjudicate. This is a
+// MEASUREMENT-ONLY reframe (the same scoped-channel reframe as Gate 1b); the only
+// behavioural change is the payload-filter itself. The ~100% bar is unchanged: if
+// scoped retrieval still cannot carry the gold at generous K, completeness halts —
+// a real "scoped retrieval doesn't transfer" finding, accepted, not tuned. The
+// unfiltered channel is still measured honestly as Gate 1b's B_unscoped contrast.
 async function verifyCompleteness({ client, dataset, model, concurrency = 5 }) {
-  await client.adminMemoryConfig(GENEROUS_CONFIG);
+  await client.adminMemoryConfig({ ...GENEROUS_CONFIG, scopeFilter: 1 });
   const questions = [...dataset.dev, ...dataset.heldout, dataset.gate2.question].filter(
     (q) => q.requiredMarkers.length > 0
   );

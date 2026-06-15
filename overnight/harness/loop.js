@@ -132,6 +132,9 @@ function makeContext(args) {
     checkpointModel: args["checkpoint-model"] || "gpt-5.4-mini",
     checkpointModelFallback: args["checkpoint-model-fallback"] || "gpt-4.1-mini",
     judgeModel: args["judge-model"] || "qwen3:14b",
+    // Embedding model for Gate 1b's raw-db.search control probe — must match Sage's
+    // (benchEnv leaves MNEMOSYNE_EMBEDDING_MODEL at its nomic-embed-text default).
+    embedModel: args["embed-model"] || "nomic-embed-text",
     seedDev: num(args["seed-dev"], 1337),
     seedHeldout: num(args["seed-heldout"], 7331),
     lambda: num(args.lambda, 0.00005),
@@ -542,12 +545,12 @@ async function doGatesPhase(ctx, { dataset, state }) {
   // Gate 1b — semantic channel actually exercised (THE linchpin; spec §5).
   // Failure here is the run's most important signal, not an inconvenience: halt
   // with the P0-too-weak diagnosis. Do NOT fix-and-retry to force a pass.
-  const g1b = await runGate1b({ client: ctx.clients.sage, dataset, model: ctx.scorerModel, lambda: ctx.lambda, concurrency: ctx.concurrency, log });
+  const g1b = await runGate1b({ client: ctx.clients.sage, dataset, model: ctx.scorerModel, lambda: ctx.lambda, concurrency: ctx.concurrency, qdrant: ctx.clients.qdrantBench, collection, ollama: ctx.clients.ollama, embedModel: ctx.embedModel, log });
   if (!g1b.pass) {
-    writeGateFailure(ctx, { gate: g1b.p0TooWeak ? "Gate 1b — P0 too weak (semantic not exercised)" : "Gate 1b", reason: g1b.reason, evidence: g1b.evidence });
+    writeGateFailure(ctx, { gate: g1b.scopedChannelWeak ? "Gate 1b — scoped channel did not carry the gold (reframed)" : "Gate 1b", reason: g1b.reason, evidence: g1b.evidence });
     throw new HaltError(`Gate 1b: ${g1b.reason}`);
   }
-  log(`  Gate1b PASS — semantic exercised (mrrA=${g1b.evidence.meanMrrA.toFixed(3)} recallB=${g1b.evidence.meanRecallB.toFixed(3)} recallC=${g1b.evidence.meanRecallC.toFixed(3)} attrib=${g1b.evidence.attribution.toFixed(2)})`);
+  log(`  Gate1b PASS — scoped semantic carries gold (mrrA=${g1b.evidence.meanMrrA.toFixed(3)} recallB'=${g1b.evidence.meanRecallBprime.toFixed(3)} recallC=${g1b.evidence.meanRecallC.toFixed(3)} gap=${g1b.evidence.scopedGap.toFixed(3)} attrib=${g1b.evidence.attribution.toFixed(2)})`);
 
   // Gate 2
   const g2 = await runGate2({ client: ctx.clients.sage, dataset, model: ctx.scorerModel, log });

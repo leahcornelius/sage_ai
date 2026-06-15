@@ -58,20 +58,47 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     // cosine is driven by content while scope/turn/etc. remain available — e.g. for
     // the scope filter, which reads metadata.scopeKey. This is a principled,
     // unconditional production fix (no flag): content should drive retrieval.
-    const memoryId = await mnemosyneClient.store({
-      text: messageText,
-      category: "episodic",
-      eventTime: timestamp,
-      metadata: {
-        memoryClass: "episodic",
-        scopeKey,
-        conversationId,
-        role,
-        turnIndex,
-        messageId,
-        timestamp,
-      },
-    });
+    const metadata = {
+      memoryClass: "episodic",
+      scopeKey,
+      conversationId,
+      role,
+      turnIndex,
+      messageId,
+      timestamp,
+    };
+
+    let memoryId;
+    if (config.memory.episodicRawStore) {
+      // Raw episodic store (default OFF; benchmark-only). mnemosyneClient.store()
+      // routes through fullStorePipeline, which runs an UNCONDITIONAL 0.85-cosine
+      // dedup/merge (no config flag): on a hit it keeps the LATER turn's text,
+      // soft-deletes the earlier point, and overwrites its metadata (dropping
+      // scopeKey). For intentionally-similar distinct memories that collapses the
+      // store and — because earlier-planted facts are the merge losers — deletes
+      // them before any retrieval runs. Episodic turns are raw events that must
+      // never be merged with each other, so write the point directly via the raw
+      // QdrantDB handle mnemosy-ai exposes, embedding the clean content with the
+      // same embedder. classification "public" -> the shared collection (where
+      // recall/searchSemantic look); memoryType "semantic" matches how factual
+      // turns classify, keeping the unfiltered recall arm comparable.
+      const vector = await mnemosyneClient.embeddings.embed(messageText);
+      const cell = await mnemosyneClient.db.store(messageText, vector, {
+        memoryType: "semantic",
+        classification: "public",
+        scope: "public",
+        eventTime: timestamp,
+        metadata,
+      });
+      memoryId = cell?.id || null;
+    } else {
+      memoryId = await mnemosyneClient.store({
+        text: messageText,
+        category: "episodic",
+        eventTime: timestamp,
+        metadata,
+      });
+    }
     seenMessageIds.add(messageId);
     rememberEpisodic(scopeKey, {
       text: messageText,
@@ -125,34 +152,36 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     if (!enabled || !query) {
       return [];
     }
-    // mnemosy-ai's recall() honors `limit` (defaults to 5) and ignores `topK`,
-    // so passing only `topK` left semanticTopK inert. Pass `limit` so the
-    // semanticTopK read-side knob actually controls the semantic result count.
+    // scopeFilter selects between two semantic-recall paths that share the same
+    // embedder/vector space, so the only difference is WHERE the search happens:
     //
-    // scopeFilter (default OFF): mnemosy-ai's recall() searches the whole shared
-    // collection with no scope param, so a different scope's lookalike can
-    // outrank the in-scope gold (cross-scope bleed). When enabled, over-fetch and
-    // keep only items tagged with the requesting scope, so semanticTopK in-scope
-    // hits still survive. The `[scope:<scopeKey>]` tag lives in the raw stored
-    // text and is stripped by cleanStoredText, so we must filter BEFORE mapping.
-    const limit = scopeFilter ? Math.min(200, Math.max(topK, 1) * 8) : topK;
-    const recalled = await mnemosyneClient.recall({
-      query,
-      limit,
-      topK,
-    });
-    let results = Array.isArray(recalled) ? recalled : [];
+    //   OFF (default): mnemosy-ai's recall() searches the whole shared collection
+    //     with no scope param, so a different scope's lookalike can outrank the
+    //     in-scope gold (cross-scope bleed). recall() honors `limit` (not `topK`),
+    //     so pass limit=topK to make the semanticTopK knob control the count.
+    //
+    //   ON: search the Qdrant collection DIRECTLY, restricted to in-scope points
+    //     via a payload filter on metadata.scopeKey (where storeEpisodic puts the
+    //     scope — embedding hygiene moved it out of the embedded text). Within a
+    //     scope the in-scope gold ranks high; globally it is swamped by ~similar
+    //     cross-scope lookalikes that a post-filter could never recover (they keep
+    //     the gold out of mnemosy-ai's candidate set entirely). mnemosy-ai exposes
+    //     its own QdrantDB + embedder, so this reuses Sage's embedder (query and
+    //     stored vectors share a space) with NO extra dependency. Raw vector search:
+    //     no rerank/dedup/query-rewrite; minScore stays recall's 0.3 default
+    //     (within-scope cosines clear it). Mirrors mnemosy-ai's own search(query,
+    //     filters) helper, but limited to semanticTopK.
+    let results;
     if (scopeFilter && scopeKey) {
-      const scopeTag = `[scope:${scopeKey}]`;
-      results = results
-        .filter((memory) => {
-          const entry = memory?.entry || {};
-          // Scope now lives in the metadata payload (embedding hygiene moved the
-          // structural tags out of the embedded text). Fall back to the legacy
-          // in-text tag for any older/mixed records.
-          return entry.metadata?.scopeKey === scopeKey || String(entry.text || "").includes(scopeTag);
-        })
-        .slice(0, topK);
+      const vector = await mnemosyneClient.embeddings.embed(query);
+      const collection = mnemosyneClient.config.sharedCollection;
+      const hits = await mnemosyneClient.db.search(collection, vector, topK, 0.3, {
+        "metadata.scopeKey": scopeKey,
+      });
+      results = Array.isArray(hits) ? hits : [];
+    } else {
+      const recalled = await mnemosyneClient.recall({ query, limit: topK, topK });
+      results = Array.isArray(recalled) ? recalled : [];
     }
     return results.map((memory) => {
       const entry = memory?.entry || {};
