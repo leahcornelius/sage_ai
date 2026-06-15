@@ -1,6 +1,6 @@
 # EXPERIMENT 6 — Does the clean-fact gain transfer to real conversations?
 
-**Branch:** `experiment/6-locomo-transfer` off `experiment/5-autonomous-cleanfact` @ `002cd57`
+**Branch:** `experiment/6-locomo-transfer` off `main` (the merged stack tip; tree == `experiment/5-autonomous-cleanfact` @ `002cd57`)
 **Mode:** fully autonomous, unsupervised, ≤24h (Leah away, audits on return).
 **Caps:** wall-clock **24h**, cloud spend **$80**, **3** distinct-hypothesis rounds/gate, **≤20** adjudicator spawns.
 **Prime principle:** self-improvement only counts where success is **verifiable**. A true
@@ -69,7 +69,7 @@ a comparison that isn't provably fair is worse than no answer.
 1. Backends up: Qdrant, Redis, Ollama (`qwen3:14b` + `nomic-embed-text`). `OPENAI_API_KEY` set
    (LoCoMo answerer `gpt-5.4-mini`, preflight it 200 OK; `gpt-4.1-mini` fallback; if neither
    resolves → **HALT**, because LoCoMo *is* the experiment, not an optional checkpoint).
-2. `git checkout -b experiment/6-locomo-transfer experiment/5-autonomous-cleanfact` (@ `002cd57`).
+2. `git checkout -b experiment/6-locomo-transfer main` (the full stack is merged, so `main` now == the exp5 tip `002cd57`; if the exp5 branch is still around, `git diff main experiment/5-autonomous-cleanfact` should be empty — that plus the suite check below confirms parity).
 3. `npm run test:contracts` green (expect **34/34**) + `npm test` green (**139/139**). Red → HALT.
 4. Confirm the adjudicator rig is present (`overnight/harness/adjudicator.mjs` + tests) and the
    `x-sage-skip-memory-write` read-only mode exists (housekeeper landed it). Absent → HALT.
