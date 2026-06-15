@@ -12,6 +12,7 @@ Sage now runs as an OpenAI-compatible API server that layers Sage's long-term me
 
 ## Documentation
 
+- **Start here — repo orientation / navigation map: [`ORIENTATION.md`](./ORIENTATION.md)**
 - Docs index: [`docs/README.md`](./docs/README.md)
 - API usage: [`docs/api.md`](./docs/api.md)
 - Architecture: [`docs/architecture.md`](./docs/architecture.md)

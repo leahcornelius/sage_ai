@@ -440,6 +440,21 @@ async function dbSearchUnscopedProbe({ qdrant, collection, ollama, embedModel, q
   return out;
 }
 
+// Gate 1b — the linchpin: prove the semantic channel is actually exercised and that
+// scoping (not the pipeline) is what helps. It runs four probes per floor question and
+// reports their means as EVIDENCE:
+//   A          — full config (sanity: meanMrrA must clear the floor)
+//   B' (prime) — scoped semantic-only recall                → evidence.meanRecallBprime
+//   C          — episodic-only recall (must stay LOW; no leakage)
+//   B_unscoped — same semantic search without the scope filter
+// The headline `scopedGap = recall(B') − recall(B_unscoped)` must exceed the threshold,
+// and a measurement-only control probe (raw unscoped db.search) attributes the gap to
+// scoping vs. pipeline effects.
+//
+// GOTCHA: the pass/fail booleans live under `evidence.criteria` (e.g. criteria.meanRecallB
+// is the boolean `meanRecallB >= min`), while the NUMERIC value is `evidence.meanRecallBprime`.
+// Reports must read `meanRecallBprime`, not `meanRecallB` (the latter at the top level does
+// not exist; under criteria it is a boolean) — see overnight/harness/loop.js RUN_REPORT.
 async function runGate1b({ client, dataset, model, lambda, concurrency, qdrant, collection, ollama, embedModel = "nomic-embed-text", log }) {
   return runMechanicalGate(
     "Gate1b",
