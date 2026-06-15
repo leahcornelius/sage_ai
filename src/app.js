@@ -65,6 +65,17 @@ async function buildApp({ config, logger, services }) {
   // Guarded, localhost-only benchmark admin routes. Disabled by default; only the
   // dedicated overnight benchmark instance enables them (SAGE_ADMIN_ENABLED=true).
   if (config.admin?.enabled) {
+    // Fail fast: the admin surface is localhost-only by design (admin.js also
+    // rejects non-loopback remote IPs per-request). If the server is bound to a
+    // non-loopback host (default SAGE_HOST is 0.0.0.0), registering admin routes
+    // would expose the port on the network, so refuse to boot instead.
+    const loopbackHosts = new Set(["127.0.0.1", "::1", "localhost"]);
+    if (!loopbackHosts.has(config.server.host)) {
+      throw new Error(
+        "SAGE_ADMIN_ENABLED=true requires SAGE_HOST to be a loopback address " +
+          `(127.0.0.1, ::1, or localhost); got "${config.server.host}".`
+      );
+    }
     await app.register(registerAdminRoutes);
     logger.warn(
       { host: config.server.host },

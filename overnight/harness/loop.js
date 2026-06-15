@@ -451,6 +451,9 @@ function writeRunStatus(ctx, { state, best, gridBest, extra = {} }) {
   const boot = readBoot(store) || {};
   const spend = state.checkpoint?.spendUsd || 0;
   const runs = state.checkpoint?.runs || 0;
+  // Emit repo-relative paths in the committed status file: absolute paths would leak
+  // the developer's username + local directory layout and aren't portable.
+  const rel = (p) => path.relative(process.cwd(), p).split(path.sep).join("/");
   const lines = [
     "# RUN_STATUS.md — overnight retrieval loop",
     "",
@@ -466,9 +469,9 @@ function writeRunStatus(ctx, { state, best, gridBest, extra = {} }) {
     `- checkpoint spend (CONSERVATIVE est, upper-bound): $${spend.toFixed(2)} / $${ctx.checkpointCostCeilingUsd} ceiling`,
     `- checkpoint runs: ${runs} / ${ctx.checkpointBudget}`,
     `- checkpoint model: ${ctx.checkpointModel} (rates in $${ctx.rateInUsdPer1M}/1M, out $${ctx.rateOutUsdPer1M}/1M)`,
-    `- run dir: ${runDir}`,
-    `- stdout/err: ${path.join(store.logsDir, "loop.out.log")} / ${path.join(store.logsDir, "loop.err.log")}`,
-    `- sage logs: ${path.join(store.logsDir, "sage.out.log")} / sage.err.log`,
+    `- run dir: ${rel(runDir)}`,
+    `- stdout/err: ${rel(path.join(store.logsDir, "loop.out.log"))} / ${rel(path.join(store.logsDir, "loop.err.log"))}`,
+    `- sage logs: ${rel(path.join(store.logsDir, "sage.out.log"))} / ${rel(path.join(store.logsDir, "sage.err.log"))}`,
     "",
     "## resume",
     "```powershell",
@@ -873,7 +876,7 @@ async function finalReport(ctx, { dataset, baseline, best, gridBest, state, star
   const gen = dataset.meta?.generation;
 
   const body = [
-    "# RUN_REPORT.md — Semantic-stress retrieval loop + scope-filtering (V0.2)",
+    "# RUN_REPORT.md — Semantic-stress retrieval loop + scope-filtering",
     "",
     `Run \`${ctx.runid}\` — ${state.iteration} iterations, ${elapsedH}h elapsed.`,
     "",
@@ -888,7 +891,7 @@ async function finalReport(ctx, { dataset, baseline, best, gridBest, state, star
     "",
     "## Gate 1b — semantic channel exercised (the linchpin)",
     g1b
-      ? `PASS. meanMRR(A)=${f3(g1b.meanMrrA)}; semantic-only recall(B)=${f3(g1b.meanRecallB)}; ` +
+      ? `PASS. meanMRR(A)=${f3(g1b.meanMrrA)}; semantic-only recall(B')=${f3(g1b.meanRecallBprime ?? g1b.meanRecallB)}; ` +
         `episodic-only recall(C)=${f3(g1b.meanRecallC)}; attribution=${f3(g1b.attribution)}; ` +
         `multi-hop recall(A)=${f3(g1b.multiRecallA)} (reported separately). ` +
         `This run measures semantic retrieval (night one had meanMRR=0).`

@@ -8,6 +8,7 @@ function createMemoryController({
   config,
   logger,
   mem0Adapter,
+  localExtractorAdapter,
   zepAdapter,
   mnemosyneAdapter,
   redisCache,
@@ -353,9 +354,37 @@ function createMemoryController({
             }),
           countResults: true,
         });
-        const facts = extractedFacts.ok && Array.isArray(extractedFacts.value)
+        const mem0Facts = extractedFacts.ok && Array.isArray(extractedFacts.value)
           ? extractedFacts.value
           : [];
+
+        // Local clean-fact extraction (Experiment 5): a $0, local replacement for the
+        // dead cloud-mem0 path, gated by its own flag (SAGE_CLEANFACT_ENABLED) so mem0
+        // can stay OFF. Disabled by default → runAdapter short-circuits with
+        // reason:"disabled" (no operation call) and contributes no facts.
+        const cleanfactExtracted = await runAdapter({
+          adapterName: "cleanfact",
+          operationName: "extractFacts",
+          timeoutMs: config.memory.timeouts.cleanfactMs,
+          deadline: Date.now() + config.memory.timeouts.cleanfactMs,
+          requestId,
+          logger: operationLogger,
+          operation: () =>
+            localExtractorAdapter.extractFacts({
+              scopeKey,
+              conversationId,
+              role,
+              messageText,
+              messageId,
+              timestamp,
+            }),
+          countResults: true,
+        });
+        const cleanFacts = cleanfactExtracted.ok && Array.isArray(cleanfactExtracted.value)
+          ? cleanfactExtracted.value
+          : [];
+
+        const facts = [...mem0Facts, ...cleanFacts];
 
         if (facts.length > 0) {
           await Promise.allSettled([
@@ -456,12 +485,14 @@ function createMemoryController({
       checkHealthAdapter("zep", zepAdapter?.ping),
       checkHealthAdapter("redis", redisCache?.ping),
       checkHealthAdapter("mnemosyne", mnemosyneAdapter?.ping),
+      checkHealthAdapter("cleanfact", localExtractorAdapter?.ping),
     ]);
     const result = {
       mem0: toHealthStatus(checks[0]),
       zep: toHealthStatus(checks[1]),
       redis: toHealthStatus(checks[2]),
       mnemosyne: toHealthStatus(checks[3]),
+      cleanfact: toHealthStatus(checks[4]),
     };
 
     operationLogger.debug({ requestId, memoryHealth: result }, "Resolved memory subsystem health");
@@ -608,6 +639,9 @@ function createMemoryController({
 
     if (adapterName === "mem0") {
       return Boolean(mem0Adapter?.enabled);
+    }
+    if (adapterName === "cleanfact") {
+      return Boolean(localExtractorAdapter?.enabled);
     }
     if (adapterName === "zep") {
       return Boolean(zepAdapter?.enabled);

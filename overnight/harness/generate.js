@@ -70,9 +70,15 @@ function jaccard(a, b) {
   return inter / (A.size + B.size - inter);
 }
 
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // Marker must appear exactly once, not embedded inside a larger alphanumeric token.
 function markerOnceWithBoundary(text, marker) {
-  const re = new RegExp(`(^|[^0-9A-Za-z])${marker}([^0-9A-Za-z]|$)`, "g");
+  // Escape the marker: it is interpolated into a RegExp, so any metacharacter would
+  // otherwise change the match semantics.
+  const re = new RegExp(`(^|[^0-9A-Za-z])${escapeRegExp(marker)}([^0-9A-Za-z]|$)`, "g");
   const matches = String(text).match(re);
   return Boolean(matches) && matches.length === 1;
 }

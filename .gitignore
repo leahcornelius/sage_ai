@@ -5,15 +5,27 @@ logs/
 .webui_secret_key
 
 # Overnight retrieval-loop run artifacts: keep secrets and bulky per-iteration
-# logs out of git. Compact summaries / reports are committed explicitly.
+# logs/state out of git. Compact, durable summaries are committed explicitly
+# (RUN_REPORT.md, RUN_STATUS.md, VERIFICATION.md, gates-result.json, manifest.json,
+# best.json, archive-summary.json, dataset.json, sage.boot.json, GATE_FAILURE.md).
 overnight/runs/*/logs/
 overnight/runs/*/*.log
 overnight/runs/*/bench-credential.json
 overnight/runs/*/*.pid
 overnight/runs/**/raw/
+# Bulky, mutable per-iteration run state (regenerated every run; not durable):
+overnight/runs/*/archive.jsonl
+overnight/runs/*/grid.jsonl
+overnight/runs/*/loop-state.json
+# Top-level console dumps from local dry/gate runs (logs, not artifacts):
+overnight/*.console.log
 # Night-two build/data artifacts (regenerable / NC-licensed / large)
 overnight/_build_dataset.json
 overnight/_genfull.log
 overnight/harness/_*.mjs
 data/locomo10.json
 overnight/runs/*/locomo-meta.json
+# Local conversation store (mutable SQLite; not an artifact):
+data/*.sqlite
+data/*.sqlite-shm
+data/*.sqlite-wal

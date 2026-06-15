@@ -2,6 +2,7 @@ import { AppError } from "../errors/app-error.js";
 import { textLength } from "../logging/safe-debug.js";
 import { createMemoryController } from "./memory/memory-controller.js";
 import { createMem0Adapter } from "./memory/mem0-adapter.js";
+import { createLocalExtractorAdapter } from "./memory/local-extractor-adapter.js";
 import { createZepAdapter } from "./memory/zep-adapter.js";
 import { createMnemosyneAdapter } from "./memory/mnemosyne-adapter.js";
 import { createRedisCache } from "./memory/redis-cache.js";
@@ -14,6 +15,7 @@ function createMemoryService({
 }) {
   const serviceLogger = logger.child({ service: "memory-service" });
   const mem0Adapter = createMem0Adapter({ config, logger: serviceLogger });
+  const localExtractorAdapter = createLocalExtractorAdapter({ config, logger: serviceLogger });
   const zepAdapter = createZepAdapter({ config, logger: serviceLogger });
   const mnemosyneAdapter = createMnemosyneAdapter({
     mnemosyneClient,
@@ -29,6 +31,7 @@ function createMemoryService({
     config,
     logger: serviceLogger,
     mem0Adapter,
+    localExtractorAdapter,
     zepAdapter,
     mnemosyneAdapter,
     redisCache,

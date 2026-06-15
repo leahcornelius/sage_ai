@@ -6,7 +6,7 @@ scope handling, context-merge/trim, mem0, config landmines) and its benchmark ha
 They are the durable regression guard every future experiment inherits.
 
 See `../MEMORY_CONTRACTS.md` (intended contracts) and `../DEFECT_INVENTORY.md`
-(findings + fix status). The arc write-up is `../EXPERIMENT_4_OUTCOME.md`.
+(findings + fix status). The arc write-up is `../experiments/exp4/EXPERIMENT_4_OUTCOME.md`.
 
 ## Run
 
