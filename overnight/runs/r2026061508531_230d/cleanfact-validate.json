@@ -1,0 +1,238 @@
+{
+  "summary": {
+    "runid": "r2026061508531_230d",
+    "model": "qwen3:14b",
+    "turns": 16,
+    "goldCount": 12,
+    "totalFacts": 12,
+    "fillerFacts": 0,
+    "meanLatencyMs": 4015,
+    "estPopulate140Min": 9.4,
+    "gate1a": {
+      "markersPreserved": 12,
+      "goldCount": 12,
+      "markerPreservationRate": 1,
+      "floor": 0.5,
+      "sane": true,
+      "hardFail": false
+    },
+    "gate1c": {
+      "determinismOverlap": 1,
+      "markerStability": 1,
+      "detTurns": 8
+    },
+    "verdict": "GATE_1_PASS (sane + markers preserved)"
+  },
+  "run1": [
+    {
+      "i": 0,
+      "kind": "gold",
+      "marker": "Z8VAG0RP",
+      "nFacts": 1,
+      "markerPreserved": true,
+      "ms": 4546,
+      "facts": [
+        "The route code for the Crimson Falcon yard is Z8VAG0RP."
+      ]
+    },
+    {
+      "i": 1,
+      "kind": "gold",
+      "marker": "AL7PHA42",
+      "nFacts": 1,
+      "markerPreserved": true,
+      "ms": 3735,
+      "facts": [
+        "The access badge for the Helios east wing is AL7PHA42."
+      ]
+    },
+    {
+      "i": 2,
+      "kind": "gold",
+      "marker": "T4WINDOW",
+      "nFacts": 1,
+      "markerPreserved": true,
+      "ms": 2998,
+      "facts": [
+        "The maintenance window for the Aurora relay is set to T4WINDOW."
+      ]
+    },
+    {
+      "i": 3,
+      "kind": "gold",
+      "marker": "MNFST9QX",
+      "nFacts": 1,
+      "markerPreserved": true,
+      "ms": 4083,
+      "facts": [
+        "The shipping manifest for the Onyx convoy uses code MNFST9QX."
+      ]
+    },
+    {
+      "i": 4,
+      "kind": "gold",
+      "marker": "VC3MBN88",
+      "nFacts": 1,
+      "markerPreserved": true,
+      "ms": 4438,
+      "facts": [
+        "The vault combination for the Meridian depot is VC3MBN88."
+      ]
+    },
+    {
+      "i": 5,
+      "kind": "gold",
+      "marker": "TND5R0CK",
+      "nFacts": 1,
+      "markerPreserved": true,
+      "ms": 5231,
+      "facts": [
+        "The call sign for the Tundra outpost is TND5R0CK."
+      ]
+    },
+    {
+      "i": 6,
+      "kind": "gold",
+      "marker": "SLC7KEY1",
+      "nFacts": 1,
+      "markerPreserved": true,
+      "ms": 4962,
+      "facts": [
+        "The license key for the Solace terminal is SLC7KEY1."
+      ]
+    },
+    {
+      "i": 7,
+      "kind": "gold",
+      "marker": "BRTH22XQ",
+      "nFacts": 1,
+      "markerPreserved": true,
+      "ms": 3375,
+      "facts": [
+        "The berth assignment for the Nimbus freighter is BRTH22XQ."
+      ]
+    },
+    {
+      "i": 8,
+      "kind": "gold",
+      "marker": "CBLT0VRD",
+      "nFacts": 1,
+      "markerPreserved": true,
+      "ms": 5714,
+      "facts": [
+        "The override token for the Cobalt gate is CBLT0VRD."
+      ]
+    },
+    {
+      "i": 9,
+      "kind": "gold",
+      "marker": "HZ449821",
+      "nFacts": 1,
+      "markerPreserved": true,
+      "ms": 3307,
+      "facts": [
+        "The frequency for the Halcyon beacon is HZ449821."
+      ]
+    },
+    {
+      "i": 10,
+      "kind": "gold",
+      "marker": "VSP3R777",
+      "nFacts": 1,
+      "markerPreserved": true,
+      "ms": 5099,
+      "facts": [
+        "The serial for the Vesper unit is VSP3R777."
+      ]
+    },
+    {
+      "i": 11,
+      "kind": "gold",
+      "marker": "QZ8ARCHV",
+      "nFacts": 1,
+      "markerPreserved": true,
+      "ms": 3962,
+      "facts": [
+        "The passphrase for the Quartz archive is QZ8ARCHV."
+      ]
+    },
+    {
+      "i": 12,
+      "kind": "filler",
+      "marker": null,
+      "nFacts": 0,
+      "markerPreserved": null,
+      "ms": 3039,
+      "facts": []
+    },
+    {
+      "i": 13,
+      "kind": "filler",
+      "marker": null,
+      "nFacts": 0,
+      "markerPreserved": null,
+      "ms": 1730,
+      "facts": []
+    },
+    {
+      "i": 14,
+      "kind": "filler",
+      "marker": null,
+      "nFacts": 0,
+      "markerPreserved": null,
+      "ms": 4410,
+      "facts": []
+    },
+    {
+      "i": 15,
+      "kind": "filler",
+      "marker": null,
+      "nFacts": 0,
+      "markerPreserved": null,
+      "ms": 3614,
+      "facts": []
+    }
+  ],
+  "run2": [
+    {
+      "i": 0,
+      "overlap": 1,
+      "nFacts": 1
+    },
+    {
+      "i": 1,
+      "overlap": 1,
+      "nFacts": 1
+    },
+    {
+      "i": 2,
+      "overlap": 1,
+      "nFacts": 1
+    },
+    {
+      "i": 3,
+      "overlap": 1,
+      "nFacts": 1
+    },
+    {
+      "i": 4,
+      "overlap": 1,
+      "nFacts": 1
+    },
+    {
+      "i": 5,
+      "overlap": 1,
+      "nFacts": 1
+    },
+    {
+      "i": 6,
+      "overlap": 1,
+      "nFacts": 1
+    },
+    {
+      "i": 7,
+      "overlap": 1,
+      "nFacts": 1
+    }
+  ]
+}

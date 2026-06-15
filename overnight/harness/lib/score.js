@@ -60,6 +60,18 @@ function scoreQuestion(retrieveResult, question) {
 // Resilient retrieve: transient Ollama/Qdrant latency spikes under sustained load
 // can abort a single retrieve. Retry a few times; if all fail, return a synthetic
 // empty result (counts as a miss) so one bad retrieve never crashes a grid/loop run.
+// Only a timeout/deadline exhaustion is a true budget-exceeded; connection/auth/
+// server errors are hard failures with different gate-diagnosis semantics.
+function isBudgetExceededError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("deadline") ||
+    message.includes("timeout") ||
+    message.includes("timed out") ||
+    message.includes("budget")
+  );
+}
+
 async function retrieveWithRetry(client, q, model, attempts = 3) {
   let lastErr = null;
   for (let i = 0; i < attempts; i += 1) {
@@ -79,14 +91,21 @@ async function retrieveWithRetry(client, q, model, attempts = 3) {
     contextTokenCount: 0,
     partial: true,
     cacheHit: false,
-    budgetExceeded: true,
+    budgetExceeded: isBudgetExceededError(lastErr),
     _failed: true,
     _error: lastErr ? lastErr.message : "unknown",
   };
 }
 
 async function runPool(items, worker, concurrency = 5) {
+  if (items.length === 0) return [];
   const results = new Array(items.length);
+  // Clamp concurrency to a positive integer: 0/negative/NaN would produce zero
+  // lanes and silently return an array of undefineds (no workers ever run).
+  const laneCount = Math.max(
+    1,
+    Math.min(items.length, Number.isFinite(concurrency) ? Math.floor(concurrency) : 5)
+  );
   let next = 0;
   async function lane() {
     while (true) {
@@ -95,7 +114,7 @@ async function runPool(items, worker, concurrency = 5) {
       results[idx] = await worker(items[idx], idx);
     }
   }
-  const lanes = Array.from({ length: Math.min(concurrency, items.length) }, () => lane());
+  const lanes = Array.from({ length: laneCount }, () => lane());
   await Promise.all(lanes);
   return results;
 }

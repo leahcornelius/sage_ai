@@ -1,0 +1,1765 @@
+{
+  "meta": {
+    "runid": "r2026061323123_8577_dry",
+    "seedDev": 1337,
+    "seedHeldout": 7331,
+    "markerLen": 8,
+    "sizes": {
+      "dev": {
+        "single": 12,
+        "multi": 8,
+        "temporal": 6,
+        "abstention": 6
+      },
+      "heldout": {
+        "single": 6,
+        "multi": 4,
+        "temporal": 3,
+        "abstention": 3
+      }
+    },
+    "scopePrefix": "benchuser_r2026061323123_8577_dry",
+    "counts": {
+      "devQuestions": 32,
+      "heldoutQuestions": 16,
+      "ingests": 140,
+      "markers": 140
+    }
+  },
+  "scopes": [
+    "benchuser_r2026061323123_8577_dry_dev_0",
+    "benchuser_r2026061323123_8577_dry_dev_1",
+    "benchuser_r2026061323123_8577_dry_dev_2",
+    "benchuser_r2026061323123_8577_dry_dev_3",
+    "benchuser_r2026061323123_8577_dry_dev_4",
+    "benchuser_r2026061323123_8577_dry_dev_5",
+    "benchuser_r2026061323123_8577_dry_dev_6",
+    "benchuser_r2026061323123_8577_dry_dev_7",
+    "benchuser_r2026061323123_8577_dry_held_0",
+    "benchuser_r2026061323123_8577_dry_held_1",
+    "benchuser_r2026061323123_8577_dry_held_2",
+    "benchuser_r2026061323123_8577_dry_held_3",
+    "benchuser_r2026061323123_8577_dry_gate2"
+  ],
+  "dev": [
+    {
+      "id": "dev-single-0",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "query": "What is the access code for the Ember Marten annex?",
+      "requiredMarkers": [
+        "30SERCDT"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-single-1",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "query": "What is the dock number for the Jade Bison annex?",
+      "requiredMarkers": [
+        "WXJGP50Y"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-single-2",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "query": "What is the region code for the Maroon Falcon yard?",
+      "requiredMarkers": [
+        "GVPTMNY2"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-single-3",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "query": "What is the berth code for the Indigo Otter annex?",
+      "requiredMarkers": [
+        "1BWPKNMZ"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-single-4",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "query": "What is the access code for the Maroon Marten yard?",
+      "requiredMarkers": [
+        "W2PHWGT1"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-single-5",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "query": "What is the crate label for the Onyx Puffin wharf?",
+      "requiredMarkers": [
+        "AVRHP7ZH"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-single-6",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "query": "What is the crate label for the Cobalt Heron hub?",
+      "requiredMarkers": [
+        "SKMH7PNH"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-single-7",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "query": "What is the berth code for the Onyx Falcon hub?",
+      "requiredMarkers": [
+        "KM66D98W"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-single-8",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "query": "What is the route code for the Ember Tapir depot?",
+      "requiredMarkers": [
+        "QS64RRX7"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-single-9",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "query": "What is the crate label for the Maroon Walrus wharf?",
+      "requiredMarkers": [
+        "T4VBNJME"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-single-10",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "query": "What is the aisle marker for the Crimson Falcon hub?",
+      "requiredMarkers": [
+        "JQ4DTVF6"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-single-11",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "query": "What is the aisle marker for the Olive Falcon annex?",
+      "requiredMarkers": [
+        "NFFH4J6D"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-multi-0",
+      "type": "multi",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "query": "For the Crimson Tapir depot, what are the route code and the dock number?",
+      "requiredMarkers": [
+        "VW26MSS0",
+        "G5PH6RS8"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-multi-1",
+      "type": "multi",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "query": "For the Slate Badger yard, what are the pallet marker and the shelf marker?",
+      "requiredMarkers": [
+        "7VD1PPGJ",
+        "1QJP17JM"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-multi-2",
+      "type": "multi",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "query": "For the Cobalt Bison hub, what are the access code and the shelf marker?",
+      "requiredMarkers": [
+        "E0469FM6",
+        "HDBZCB0N"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-multi-3",
+      "type": "multi",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "query": "For the Slate Heron yard, what are the bay label and the shelf marker?",
+      "requiredMarkers": [
+        "JEYQ141S",
+        "S17AZR6R"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-multi-4",
+      "type": "multi",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "query": "For the Onyx Heron depot, what are the bay label and the aisle marker?",
+      "requiredMarkers": [
+        "WYVJC60Z",
+        "FXXA3P06"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-multi-5",
+      "type": "multi",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "query": "For the Amber Heron annex, what are the bay label and the badge colour code?",
+      "requiredMarkers": [
+        "CR5S34N3",
+        "25QHN9RE"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-multi-6",
+      "type": "multi",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "query": "For the Saffron Bison annex, what are the pallet marker and the bay label?",
+      "requiredMarkers": [
+        "340PMXKR",
+        "CSNPKKAN"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-multi-7",
+      "type": "multi",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "query": "For the Teal Falcon depot, what are the aisle marker and the dock number?",
+      "requiredMarkers": [
+        "3EF7S1S2",
+        "46A0MPX6"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-temporal-0",
+      "type": "temporal",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "query": "What is the current region code for the Teal Otter depot?",
+      "requiredMarkers": [
+        "NYYF8NC5"
+      ],
+      "forbiddenMarkers": [
+        "ZGMT31VA"
+      ]
+    },
+    {
+      "id": "dev-temporal-1",
+      "type": "temporal",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "query": "What is the current shelf marker for the Cobalt Otter annex?",
+      "requiredMarkers": [
+        "0RYA4NF8"
+      ],
+      "forbiddenMarkers": [
+        "6FG7184Q"
+      ]
+    },
+    {
+      "id": "dev-temporal-2",
+      "type": "temporal",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "query": "What is the current region code for the Amber Heron wharf?",
+      "requiredMarkers": [
+        "REGT6K03"
+      ],
+      "forbiddenMarkers": [
+        "77E8DFVG"
+      ]
+    },
+    {
+      "id": "dev-temporal-3",
+      "type": "temporal",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "query": "What is the current dock number for the Crimson Badger yard?",
+      "requiredMarkers": [
+        "YRAAZ1W7"
+      ],
+      "forbiddenMarkers": [
+        "1YVXZ0A5"
+      ]
+    },
+    {
+      "id": "dev-temporal-4",
+      "type": "temporal",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_6",
+      "query": "What is the current locker label for the Cobalt Stork yard?",
+      "requiredMarkers": [
+        "WSGY972Z"
+      ],
+      "forbiddenMarkers": [
+        "QVBT9F9J"
+      ]
+    },
+    {
+      "id": "dev-temporal-5",
+      "type": "temporal",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_6",
+      "query": "What is the current access code for the Indigo Walrus yard?",
+      "requiredMarkers": [
+        "NDY20RF1"
+      ],
+      "forbiddenMarkers": [
+        "605TS9EJ"
+      ]
+    },
+    {
+      "id": "dev-abstain-0",
+      "type": "abstention",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_6",
+      "query": "What is the crate label for the Jade Tapir wharf?",
+      "requiredMarkers": [],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-abstain-1",
+      "type": "abstention",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_6",
+      "query": "What is the berth code for the Ember Marten wharf?",
+      "requiredMarkers": [],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-abstain-2",
+      "type": "abstention",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_7",
+      "query": "What is the locker label for the Olive Marten wharf?",
+      "requiredMarkers": [],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-abstain-3",
+      "type": "abstention",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_7",
+      "query": "What is the shelf marker for the Onyx Tapir yard?",
+      "requiredMarkers": [],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-abstain-4",
+      "type": "abstention",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_7",
+      "query": "What is the aisle marker for the Cobalt Ibex annex?",
+      "requiredMarkers": [],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "dev-abstain-5",
+      "type": "abstention",
+      "scope": "benchuser_r2026061323123_8577_dry_dev_7",
+      "query": "What is the pallet marker for the Slate Otter wharf?",
+      "requiredMarkers": [],
+      "forbiddenMarkers": []
+    }
+  ],
+  "heldout": [
+    {
+      "id": "heldout-single-0",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "query": "What is the bay label for the Indigo Stork annex?",
+      "requiredMarkers": [
+        "8BR67Z91"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "heldout-single-1",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "query": "What is the dock number for the Slate Otter depot?",
+      "requiredMarkers": [
+        "ZEFP4NW2"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "heldout-single-2",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "query": "What is the region code for the Ember Bison depot?",
+      "requiredMarkers": [
+        "28FVBKDN"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "heldout-single-3",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "query": "What is the access code for the Cobalt Lynx depot?",
+      "requiredMarkers": [
+        "C20W2PTZ"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "heldout-single-4",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "query": "What is the route code for the Amber Ibex annex?",
+      "requiredMarkers": [
+        "6J5FP0HD"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "heldout-single-5",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "query": "What is the region code for the Cobalt Tapir wharf?",
+      "requiredMarkers": [
+        "W31WD87W"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "heldout-multi-0",
+      "type": "multi",
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "query": "For the Saffron Tapir annex, what are the dock number and the crate label?",
+      "requiredMarkers": [
+        "CQTG13CZ",
+        "3P0MW99R"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "heldout-multi-1",
+      "type": "multi",
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "query": "For the Indigo Lynx hub, what are the pallet marker and the crate label?",
+      "requiredMarkers": [
+        "CVQ18NED",
+        "546HA9V1"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "heldout-multi-2",
+      "type": "multi",
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "query": "For the Crimson Bison yard, what are the dock number and the berth code?",
+      "requiredMarkers": [
+        "T03HA7KG",
+        "9626A8VQ"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "heldout-multi-3",
+      "type": "multi",
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "query": "For the Saffron Lynx depot, what are the locker label and the route code?",
+      "requiredMarkers": [
+        "1Z86FSPM",
+        "XJCG5T4Q"
+      ],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "heldout-temporal-0",
+      "type": "temporal",
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "query": "What is the current pallet marker for the Amber Heron depot?",
+      "requiredMarkers": [
+        "D4VTG957"
+      ],
+      "forbiddenMarkers": [
+        "7WK995FV"
+      ]
+    },
+    {
+      "id": "heldout-temporal-1",
+      "type": "temporal",
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "query": "What is the current route code for the Olive Heron wharf?",
+      "requiredMarkers": [
+        "9JAN7YZG"
+      ],
+      "forbiddenMarkers": [
+        "HCGVJRKT"
+      ]
+    },
+    {
+      "id": "heldout-temporal-2",
+      "type": "temporal",
+      "scope": "benchuser_r2026061323123_8577_dry_held_3",
+      "query": "What is the current shelf marker for the Indigo Ibex annex?",
+      "requiredMarkers": [
+        "BGQTF8JT"
+      ],
+      "forbiddenMarkers": [
+        "6691P4M5"
+      ]
+    },
+    {
+      "id": "heldout-abstain-0",
+      "type": "abstention",
+      "scope": "benchuser_r2026061323123_8577_dry_held_3",
+      "query": "What is the region code for the Jade Walrus depot?",
+      "requiredMarkers": [],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "heldout-abstain-1",
+      "type": "abstention",
+      "scope": "benchuser_r2026061323123_8577_dry_held_3",
+      "query": "What is the pallet marker for the Amber Lynx hub?",
+      "requiredMarkers": [],
+      "forbiddenMarkers": []
+    },
+    {
+      "id": "heldout-abstain-2",
+      "type": "abstention",
+      "scope": "benchuser_r2026061323123_8577_dry_held_3",
+      "query": "What is the bay label for the Cobalt Falcon yard?",
+      "requiredMarkers": [],
+      "forbiddenMarkers": []
+    }
+  ],
+  "gate2": {
+    "scope": "benchuser_r2026061323123_8577_dry_gate2",
+    "question": {
+      "id": "gate2-fixture",
+      "type": "single",
+      "scope": "benchuser_r2026061323123_8577_dry_gate2",
+      "query": "What is the access code for the Ember Lynx yard?",
+      "requiredMarkers": [
+        "YKJA1R15"
+      ],
+      "forbiddenMarkers": []
+    },
+    "ingests": [
+      {
+        "scope": "benchuser_r2026061323123_8577_dry_gate2",
+        "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+        "turnIndex": 0,
+        "text": "The access code for the Ember Lynx yard is YKJA1R15.",
+        "marker": "YKJA1R15",
+        "kind": "gold"
+      },
+      {
+        "scope": "benchuser_r2026061323123_8577_dry_gate2",
+        "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+        "turnIndex": 1,
+        "text": "The access code for the Ember Bison wharf is B603MW1J.",
+        "marker": "B603MW1J",
+        "kind": "distractor"
+      },
+      {
+        "scope": "benchuser_r2026061323123_8577_dry_gate2",
+        "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+        "turnIndex": 2,
+        "text": "The access code for the Cobalt Walrus depot is 63S1KSQ9.",
+        "marker": "63S1KSQ9",
+        "kind": "distractor"
+      },
+      {
+        "scope": "benchuser_r2026061323123_8577_dry_gate2",
+        "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+        "turnIndex": 3,
+        "text": "The access code for the Crimson Lynx annex is 8VMV49TC.",
+        "marker": "8VMV49TC",
+        "kind": "distractor"
+      },
+      {
+        "scope": "benchuser_r2026061323123_8577_dry_gate2",
+        "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+        "turnIndex": 4,
+        "text": "The access code for the Olive Stork wharf is 0EEBBAY6.",
+        "marker": "0EEBBAY6",
+        "kind": "distractor"
+      },
+      {
+        "scope": "benchuser_r2026061323123_8577_dry_gate2",
+        "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+        "turnIndex": 5,
+        "text": "The access code for the Ember Walrus annex is E3KX37D5.",
+        "marker": "E3KX37D5",
+        "kind": "distractor"
+      },
+      {
+        "scope": "benchuser_r2026061323123_8577_dry_gate2",
+        "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+        "turnIndex": 6,
+        "text": "The access code for the Indigo Puffin wharf is SGXJQNRH.",
+        "marker": "SGXJQNRH",
+        "kind": "distractor"
+      },
+      {
+        "scope": "benchuser_r2026061323123_8577_dry_gate2",
+        "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+        "turnIndex": 7,
+        "text": "The access code for the Slate Lynx depot is 7R2FYX1P.",
+        "marker": "7R2FYX1P",
+        "kind": "distractor"
+      },
+      {
+        "scope": "benchuser_r2026061323123_8577_dry_gate2",
+        "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+        "turnIndex": 8,
+        "text": "The access code for the Onyx Walrus yard is EG3EC721.",
+        "marker": "EG3EC721",
+        "kind": "distractor"
+      },
+      {
+        "scope": "benchuser_r2026061323123_8577_dry_gate2",
+        "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+        "turnIndex": 9,
+        "text": "The access code for the Crimson Otter annex is K2ZCVXNM.",
+        "marker": "K2ZCVXNM",
+        "kind": "distractor"
+      },
+      {
+        "scope": "benchuser_r2026061323123_8577_dry_gate2",
+        "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+        "turnIndex": 10,
+        "text": "The access code for the Ember Tapir yard is 0873VMX7.",
+        "marker": "0873VMX7",
+        "kind": "distractor"
+      }
+    ]
+  },
+  "ingests": [
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_0__s1",
+      "turnIndex": 0,
+      "text": "The access code for the Ember Marten annex is 30SERCDT.",
+      "marker": "30SERCDT",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_0__s1",
+      "turnIndex": 1,
+      "text": "The access code for the Amber Otter annex is R05D2K13.",
+      "marker": "R05D2K13",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_0__s1",
+      "turnIndex": 2,
+      "text": "The access code for the Cobalt Ibex hub is 3EKS0W69.",
+      "marker": "3EKS0W69",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_0__s1",
+      "turnIndex": 3,
+      "text": "The dock number for the Jade Bison annex is WXJGP50Y.",
+      "marker": "WXJGP50Y",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_0__s1",
+      "turnIndex": 4,
+      "text": "The dock number for the Onyx Walrus yard is 1FQYZXRK.",
+      "marker": "1FQYZXRK",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_0__s1",
+      "turnIndex": 5,
+      "text": "The dock number for the Slate Stork depot is 0YE7QGDH.",
+      "marker": "0YE7QGDH",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_0__s1",
+      "turnIndex": 6,
+      "text": "The region code for the Maroon Falcon yard is GVPTMNY2.",
+      "marker": "GVPTMNY2",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_0__s1",
+      "turnIndex": 7,
+      "text": "The region code for the Onyx Lynx annex is A0887KBT.",
+      "marker": "A0887KBT",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_0__s1",
+      "turnIndex": 8,
+      "text": "The region code for the Indigo Lynx yard is BBVVEH22.",
+      "marker": "BBVVEH22",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_0__s1",
+      "turnIndex": 9,
+      "text": "The berth code for the Indigo Otter annex is 1BWPKNMZ.",
+      "marker": "1BWPKNMZ",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_0__s1",
+      "turnIndex": 10,
+      "text": "The berth code for the Teal Marten depot is AHJHKW93.",
+      "marker": "AHJHKW93",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_0__s1",
+      "turnIndex": 11,
+      "text": "The berth code for the Teal Falcon annex is 356GZCBC.",
+      "marker": "356GZCBC",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_1__s1",
+      "turnIndex": 0,
+      "text": "The access code for the Maroon Marten yard is W2PHWGT1.",
+      "marker": "W2PHWGT1",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_1__s1",
+      "turnIndex": 1,
+      "text": "The access code for the Cobalt Ibex wharf is BYEWFRGV.",
+      "marker": "BYEWFRGV",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_1__s1",
+      "turnIndex": 2,
+      "text": "The access code for the Saffron Heron annex is V8ZVCFJB.",
+      "marker": "V8ZVCFJB",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_1__s1",
+      "turnIndex": 3,
+      "text": "The crate label for the Onyx Puffin wharf is AVRHP7ZH.",
+      "marker": "AVRHP7ZH",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_1__s1",
+      "turnIndex": 4,
+      "text": "The crate label for the Teal Badger annex is CB7EAEPN.",
+      "marker": "CB7EAEPN",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_1__s1",
+      "turnIndex": 5,
+      "text": "The crate label for the Indigo Badger yard is VFB87K8C.",
+      "marker": "VFB87K8C",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_1__s1",
+      "turnIndex": 6,
+      "text": "The crate label for the Cobalt Heron hub is SKMH7PNH.",
+      "marker": "SKMH7PNH",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_1__s1",
+      "turnIndex": 7,
+      "text": "The crate label for the Indigo Bison hub is 74N6KDN1.",
+      "marker": "74N6KDN1",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_1__s1",
+      "turnIndex": 8,
+      "text": "The crate label for the Ember Puffin wharf is TXQWSN30.",
+      "marker": "TXQWSN30",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_1__s1",
+      "turnIndex": 9,
+      "text": "The berth code for the Onyx Falcon hub is KM66D98W.",
+      "marker": "KM66D98W",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_1__s1",
+      "turnIndex": 10,
+      "text": "The berth code for the Slate Puffin wharf is HNKC6YJQ.",
+      "marker": "HNKC6YJQ",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_1__s1",
+      "turnIndex": 11,
+      "text": "The berth code for the Amber Lynx annex is 09M7YX3Y.",
+      "marker": "09M7YX3Y",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_2__s1",
+      "turnIndex": 0,
+      "text": "The route code for the Ember Tapir depot is QS64RRX7.",
+      "marker": "QS64RRX7",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_2__s1",
+      "turnIndex": 1,
+      "text": "The route code for the Ember Ibex wharf is 4ZR29MWP.",
+      "marker": "4ZR29MWP",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_2__s1",
+      "turnIndex": 2,
+      "text": "The route code for the Onyx Ibex depot is MKKSFW90.",
+      "marker": "MKKSFW90",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_2__s1",
+      "turnIndex": 3,
+      "text": "The crate label for the Maroon Walrus wharf is T4VBNJME.",
+      "marker": "T4VBNJME",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_2__s1",
+      "turnIndex": 4,
+      "text": "The crate label for the Saffron Otter depot is GQFEE3GP.",
+      "marker": "GQFEE3GP",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_2__s1",
+      "turnIndex": 5,
+      "text": "The crate label for the Jade Tapir yard is A5ZAGJZ3.",
+      "marker": "A5ZAGJZ3",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_2__s1",
+      "turnIndex": 6,
+      "text": "The aisle marker for the Crimson Falcon hub is JQ4DTVF6.",
+      "marker": "JQ4DTVF6",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_2__s1",
+      "turnIndex": 7,
+      "text": "The aisle marker for the Crimson Ibex hub is H0B88C9H.",
+      "marker": "H0B88C9H",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_2__s1",
+      "turnIndex": 8,
+      "text": "The aisle marker for the Maroon Ibex hub is 7R01KBY1.",
+      "marker": "7R01KBY1",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_2__s1",
+      "turnIndex": 9,
+      "text": "The aisle marker for the Olive Falcon annex is NFFH4J6D.",
+      "marker": "NFFH4J6D",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_2__s1",
+      "turnIndex": 10,
+      "text": "The aisle marker for the Indigo Ibex depot is 9XTW4279.",
+      "marker": "9XTW4279",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_2__s1",
+      "turnIndex": 11,
+      "text": "The aisle marker for the Saffron Marten depot is 83XN4PV8.",
+      "marker": "83XN4PV8",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s1",
+      "turnIndex": 0,
+      "text": "The route code for the Crimson Tapir depot is VW26MSS0.",
+      "marker": "VW26MSS0",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s2",
+      "turnIndex": 1,
+      "text": "The dock number for the Crimson Tapir depot is G5PH6RS8.",
+      "marker": "G5PH6RS8",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s1",
+      "turnIndex": 2,
+      "text": "The route code for the Ember Ibex depot is 6SWPWVHZ.",
+      "marker": "6SWPWVHZ",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s1",
+      "turnIndex": 3,
+      "text": "The dock number for the Teal Bison depot is 8CRE7PB3.",
+      "marker": "8CRE7PB3",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s1",
+      "turnIndex": 4,
+      "text": "The pallet marker for the Slate Badger yard is 7VD1PPGJ.",
+      "marker": "7VD1PPGJ",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s2",
+      "turnIndex": 5,
+      "text": "The shelf marker for the Slate Badger yard is 1QJP17JM.",
+      "marker": "1QJP17JM",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s1",
+      "turnIndex": 6,
+      "text": "The pallet marker for the Indigo Puffin depot is VWC4AH3Z.",
+      "marker": "VWC4AH3Z",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s1",
+      "turnIndex": 7,
+      "text": "The shelf marker for the Onyx Bison yard is T7J4BYW1.",
+      "marker": "T7J4BYW1",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s1",
+      "turnIndex": 8,
+      "text": "The access code for the Cobalt Bison hub is E0469FM6.",
+      "marker": "E0469FM6",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s2",
+      "turnIndex": 9,
+      "text": "The shelf marker for the Cobalt Bison hub is HDBZCB0N.",
+      "marker": "HDBZCB0N",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s1",
+      "turnIndex": 10,
+      "text": "The access code for the Saffron Walrus wharf is FQTN2C2T.",
+      "marker": "FQTN2C2T",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s1",
+      "turnIndex": 11,
+      "text": "The shelf marker for the Maroon Heron hub is FNK1NPW1.",
+      "marker": "FNK1NPW1",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s1",
+      "turnIndex": 12,
+      "text": "The bay label for the Slate Heron yard is JEYQ141S.",
+      "marker": "JEYQ141S",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s2",
+      "turnIndex": 13,
+      "text": "The shelf marker for the Slate Heron yard is S17AZR6R.",
+      "marker": "S17AZR6R",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s1",
+      "turnIndex": 14,
+      "text": "The bay label for the Saffron Ibex hub is 580PA3PJ.",
+      "marker": "580PA3PJ",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_3__s1",
+      "turnIndex": 15,
+      "text": "The shelf marker for the Slate Walrus depot is 56Y2G1QD.",
+      "marker": "56Y2G1QD",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s1",
+      "turnIndex": 0,
+      "text": "The bay label for the Onyx Heron depot is WYVJC60Z.",
+      "marker": "WYVJC60Z",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s2",
+      "turnIndex": 1,
+      "text": "The aisle marker for the Onyx Heron depot is FXXA3P06.",
+      "marker": "FXXA3P06",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s1",
+      "turnIndex": 2,
+      "text": "The bay label for the Olive Walrus wharf is RSHNSQQ3.",
+      "marker": "RSHNSQQ3",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s1",
+      "turnIndex": 3,
+      "text": "The aisle marker for the Crimson Heron depot is TFJV6RQ6.",
+      "marker": "TFJV6RQ6",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s1",
+      "turnIndex": 4,
+      "text": "The bay label for the Amber Heron annex is CR5S34N3.",
+      "marker": "CR5S34N3",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s2",
+      "turnIndex": 5,
+      "text": "The badge colour code for the Amber Heron annex is 25QHN9RE.",
+      "marker": "25QHN9RE",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s1",
+      "turnIndex": 6,
+      "text": "The bay label for the Crimson Bison depot is 8RS2QKQK.",
+      "marker": "8RS2QKQK",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s1",
+      "turnIndex": 7,
+      "text": "The badge colour code for the Indigo Walrus wharf is SNK10Q3J.",
+      "marker": "SNK10Q3J",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s1",
+      "turnIndex": 8,
+      "text": "The pallet marker for the Saffron Bison annex is 340PMXKR.",
+      "marker": "340PMXKR",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s2",
+      "turnIndex": 9,
+      "text": "The bay label for the Saffron Bison annex is CSNPKKAN.",
+      "marker": "CSNPKKAN",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s1",
+      "turnIndex": 10,
+      "text": "The pallet marker for the Slate Falcon annex is YN77HKRW.",
+      "marker": "YN77HKRW",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s1",
+      "turnIndex": 11,
+      "text": "The bay label for the Crimson Otter yard is 1P34DZCD.",
+      "marker": "1P34DZCD",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s1",
+      "turnIndex": 12,
+      "text": "The aisle marker for the Teal Falcon depot is 3EF7S1S2.",
+      "marker": "3EF7S1S2",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s2",
+      "turnIndex": 13,
+      "text": "The dock number for the Teal Falcon depot is 46A0MPX6.",
+      "marker": "46A0MPX6",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s1",
+      "turnIndex": 14,
+      "text": "The aisle marker for the Saffron Puffin yard is JDA2JVF3.",
+      "marker": "JDA2JVF3",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_4",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_4__s1",
+      "turnIndex": 15,
+      "text": "The dock number for the Saffron Bison hub is 518E77AT.",
+      "marker": "518E77AT",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_5__s1",
+      "turnIndex": 0,
+      "text": "Until recently, the region code for the Teal Otter depot was ZGMT31VA.",
+      "marker": "ZGMT31VA",
+      "kind": "stale"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_5__s2",
+      "turnIndex": 1,
+      "text": "Update: the current region code for the Teal Otter depot is now NYYF8NC5.",
+      "marker": "NYYF8NC5",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_5__s1",
+      "turnIndex": 2,
+      "text": "The region code for the Olive Puffin wharf is HW1ZYPJX.",
+      "marker": "HW1ZYPJX",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_5__s1",
+      "turnIndex": 3,
+      "text": "Until recently, the shelf marker for the Cobalt Otter annex was 6FG7184Q.",
+      "marker": "6FG7184Q",
+      "kind": "stale"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_5__s2",
+      "turnIndex": 4,
+      "text": "Update: the current shelf marker for the Cobalt Otter annex is now 0RYA4NF8.",
+      "marker": "0RYA4NF8",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_5__s1",
+      "turnIndex": 5,
+      "text": "The shelf marker for the Indigo Puffin hub is XR9KXCJD.",
+      "marker": "XR9KXCJD",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_5__s1",
+      "turnIndex": 6,
+      "text": "Until recently, the region code for the Amber Heron wharf was 77E8DFVG.",
+      "marker": "77E8DFVG",
+      "kind": "stale"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_5__s2",
+      "turnIndex": 7,
+      "text": "Update: the current region code for the Amber Heron wharf is now REGT6K03.",
+      "marker": "REGT6K03",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_5__s1",
+      "turnIndex": 8,
+      "text": "The region code for the Amber Otter wharf is 6N8ENCEF.",
+      "marker": "6N8ENCEF",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_5__s1",
+      "turnIndex": 9,
+      "text": "Until recently, the dock number for the Crimson Badger yard was 1YVXZ0A5.",
+      "marker": "1YVXZ0A5",
+      "kind": "stale"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_5__s2",
+      "turnIndex": 10,
+      "text": "Update: the current dock number for the Crimson Badger yard is now YRAAZ1W7.",
+      "marker": "YRAAZ1W7",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_5",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_5__s1",
+      "turnIndex": 11,
+      "text": "The dock number for the Jade Marten yard is 79QKA8ZS.",
+      "marker": "79QKA8ZS",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_6",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_6__s1",
+      "turnIndex": 0,
+      "text": "Until recently, the locker label for the Cobalt Stork yard was QVBT9F9J.",
+      "marker": "QVBT9F9J",
+      "kind": "stale"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_6",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_6__s2",
+      "turnIndex": 1,
+      "text": "Update: the current locker label for the Cobalt Stork yard is now WSGY972Z.",
+      "marker": "WSGY972Z",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_6",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_6__s1",
+      "turnIndex": 2,
+      "text": "The locker label for the Saffron Ibex wharf is 2QA6W9ER.",
+      "marker": "2QA6W9ER",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_6",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_6__s1",
+      "turnIndex": 3,
+      "text": "Until recently, the access code for the Indigo Walrus yard was 605TS9EJ.",
+      "marker": "605TS9EJ",
+      "kind": "stale"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_6",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_6__s2",
+      "turnIndex": 4,
+      "text": "Update: the current access code for the Indigo Walrus yard is now NDY20RF1.",
+      "marker": "NDY20RF1",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_dev_6",
+      "conversationId": "benchuser_r2026061323123_8577_dry_dev_6__s1",
+      "turnIndex": 5,
+      "text": "The access code for the Onyx Ibex wharf is C5VBT8PG.",
+      "marker": "C5VBT8PG",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_0__s1",
+      "turnIndex": 0,
+      "text": "The bay label for the Indigo Stork annex is 8BR67Z91.",
+      "marker": "8BR67Z91",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_0__s1",
+      "turnIndex": 1,
+      "text": "The bay label for the Jade Falcon annex is C5V5S3KW.",
+      "marker": "C5V5S3KW",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_0__s1",
+      "turnIndex": 2,
+      "text": "The bay label for the Crimson Walrus depot is 92AENQRX.",
+      "marker": "92AENQRX",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_0__s1",
+      "turnIndex": 3,
+      "text": "The dock number for the Slate Otter depot is ZEFP4NW2.",
+      "marker": "ZEFP4NW2",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_0__s1",
+      "turnIndex": 4,
+      "text": "The dock number for the Onyx Bison depot is XMZ82TB9.",
+      "marker": "XMZ82TB9",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_0__s1",
+      "turnIndex": 5,
+      "text": "The dock number for the Ember Puffin hub is CC9F0EQB.",
+      "marker": "CC9F0EQB",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_0__s1",
+      "turnIndex": 6,
+      "text": "The region code for the Ember Bison depot is 28FVBKDN.",
+      "marker": "28FVBKDN",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_0__s1",
+      "turnIndex": 7,
+      "text": "The region code for the Crimson Falcon wharf is X2JT6DV2.",
+      "marker": "X2JT6DV2",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_0__s1",
+      "turnIndex": 8,
+      "text": "The region code for the Jade Marten annex is T3A2V7KA.",
+      "marker": "T3A2V7KA",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_0__s1",
+      "turnIndex": 9,
+      "text": "The access code for the Cobalt Lynx depot is C20W2PTZ.",
+      "marker": "C20W2PTZ",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_0__s1",
+      "turnIndex": 10,
+      "text": "The access code for the Teal Bison depot is R3SWKVAN.",
+      "marker": "R3SWKVAN",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_0",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_0__s1",
+      "turnIndex": 11,
+      "text": "The access code for the Cobalt Ibex yard is S8MP3K21.",
+      "marker": "S8MP3K21",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s1",
+      "turnIndex": 0,
+      "text": "The route code for the Amber Ibex annex is 6J5FP0HD.",
+      "marker": "6J5FP0HD",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s1",
+      "turnIndex": 1,
+      "text": "The route code for the Indigo Marten wharf is SKEH9F5C.",
+      "marker": "SKEH9F5C",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s1",
+      "turnIndex": 2,
+      "text": "The route code for the Olive Lynx annex is GHVRQP5X.",
+      "marker": "GHVRQP5X",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s1",
+      "turnIndex": 3,
+      "text": "The region code for the Cobalt Tapir wharf is W31WD87W.",
+      "marker": "W31WD87W",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s1",
+      "turnIndex": 4,
+      "text": "The region code for the Ember Puffin annex is TMT62838.",
+      "marker": "TMT62838",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s1",
+      "turnIndex": 5,
+      "text": "The region code for the Indigo Walrus hub is GB7YZJHC.",
+      "marker": "GB7YZJHC",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s1",
+      "turnIndex": 6,
+      "text": "The dock number for the Saffron Tapir annex is CQTG13CZ.",
+      "marker": "CQTG13CZ",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s2",
+      "turnIndex": 7,
+      "text": "The crate label for the Saffron Tapir annex is 3P0MW99R.",
+      "marker": "3P0MW99R",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s1",
+      "turnIndex": 8,
+      "text": "The dock number for the Saffron Tapir depot is 48JJRSYV.",
+      "marker": "48JJRSYV",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s1",
+      "turnIndex": 9,
+      "text": "The crate label for the Olive Badger annex is TQYNWV5C.",
+      "marker": "TQYNWV5C",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s1",
+      "turnIndex": 10,
+      "text": "The pallet marker for the Indigo Lynx hub is CVQ18NED.",
+      "marker": "CVQ18NED",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s2",
+      "turnIndex": 11,
+      "text": "The crate label for the Indigo Lynx hub is 546HA9V1.",
+      "marker": "546HA9V1",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s1",
+      "turnIndex": 12,
+      "text": "The pallet marker for the Jade Puffin annex is VQWKDWVC.",
+      "marker": "VQWKDWVC",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_1",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_1__s1",
+      "turnIndex": 13,
+      "text": "The crate label for the Saffron Bison hub is 9W9TZFPW.",
+      "marker": "9W9TZFPW",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s1",
+      "turnIndex": 0,
+      "text": "The dock number for the Crimson Bison yard is T03HA7KG.",
+      "marker": "T03HA7KG",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s2",
+      "turnIndex": 1,
+      "text": "The berth code for the Crimson Bison yard is 9626A8VQ.",
+      "marker": "9626A8VQ",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s1",
+      "turnIndex": 2,
+      "text": "The dock number for the Maroon Lynx yard is 61ZQ2282.",
+      "marker": "61ZQ2282",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s1",
+      "turnIndex": 3,
+      "text": "The berth code for the Maroon Lynx wharf is F4P7199H.",
+      "marker": "F4P7199H",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s1",
+      "turnIndex": 4,
+      "text": "The locker label for the Saffron Lynx depot is 1Z86FSPM.",
+      "marker": "1Z86FSPM",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s2",
+      "turnIndex": 5,
+      "text": "The route code for the Saffron Lynx depot is XJCG5T4Q.",
+      "marker": "XJCG5T4Q",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s1",
+      "turnIndex": 6,
+      "text": "The locker label for the Indigo Tapir wharf is CJBEEWGF.",
+      "marker": "CJBEEWGF",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s1",
+      "turnIndex": 7,
+      "text": "The route code for the Indigo Bison yard is 1GB3MQTX.",
+      "marker": "1GB3MQTX",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s1",
+      "turnIndex": 8,
+      "text": "Until recently, the pallet marker for the Amber Heron depot was 7WK995FV.",
+      "marker": "7WK995FV",
+      "kind": "stale"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s2",
+      "turnIndex": 9,
+      "text": "Update: the current pallet marker for the Amber Heron depot is now D4VTG957.",
+      "marker": "D4VTG957",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s1",
+      "turnIndex": 10,
+      "text": "The pallet marker for the Onyx Puffin wharf is 4Z2BXQ22.",
+      "marker": "4Z2BXQ22",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s1",
+      "turnIndex": 11,
+      "text": "Until recently, the route code for the Olive Heron wharf was HCGVJRKT.",
+      "marker": "HCGVJRKT",
+      "kind": "stale"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s2",
+      "turnIndex": 12,
+      "text": "Update: the current route code for the Olive Heron wharf is now 9JAN7YZG.",
+      "marker": "9JAN7YZG",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_2__s1",
+      "turnIndex": 13,
+      "text": "The route code for the Slate Otter yard is H78S4CB2.",
+      "marker": "H78S4CB2",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_3__s1",
+      "turnIndex": 0,
+      "text": "Until recently, the shelf marker for the Indigo Ibex annex was 6691P4M5.",
+      "marker": "6691P4M5",
+      "kind": "stale"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_3__s2",
+      "turnIndex": 1,
+      "text": "Update: the current shelf marker for the Indigo Ibex annex is now BGQTF8JT.",
+      "marker": "BGQTF8JT",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_held_3",
+      "conversationId": "benchuser_r2026061323123_8577_dry_held_3__s1",
+      "turnIndex": 2,
+      "text": "The shelf marker for the Saffron Heron yard is AHPJZZF9.",
+      "marker": "AHPJZZF9",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_gate2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+      "turnIndex": 0,
+      "text": "The access code for the Ember Lynx yard is YKJA1R15.",
+      "marker": "YKJA1R15",
+      "kind": "gold"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_gate2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+      "turnIndex": 1,
+      "text": "The access code for the Ember Bison wharf is B603MW1J.",
+      "marker": "B603MW1J",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_gate2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+      "turnIndex": 2,
+      "text": "The access code for the Cobalt Walrus depot is 63S1KSQ9.",
+      "marker": "63S1KSQ9",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_gate2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+      "turnIndex": 3,
+      "text": "The access code for the Crimson Lynx annex is 8VMV49TC.",
+      "marker": "8VMV49TC",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_gate2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+      "turnIndex": 4,
+      "text": "The access code for the Olive Stork wharf is 0EEBBAY6.",
+      "marker": "0EEBBAY6",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_gate2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+      "turnIndex": 5,
+      "text": "The access code for the Ember Walrus annex is E3KX37D5.",
+      "marker": "E3KX37D5",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_gate2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+      "turnIndex": 6,
+      "text": "The access code for the Indigo Puffin wharf is SGXJQNRH.",
+      "marker": "SGXJQNRH",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_gate2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+      "turnIndex": 7,
+      "text": "The access code for the Slate Lynx depot is 7R2FYX1P.",
+      "marker": "7R2FYX1P",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_gate2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+      "turnIndex": 8,
+      "text": "The access code for the Onyx Walrus yard is EG3EC721.",
+      "marker": "EG3EC721",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_gate2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+      "turnIndex": 9,
+      "text": "The access code for the Crimson Otter annex is K2ZCVXNM.",
+      "marker": "K2ZCVXNM",
+      "kind": "distractor"
+    },
+    {
+      "scope": "benchuser_r2026061323123_8577_dry_gate2",
+      "conversationId": "benchuser_r2026061323123_8577_dry_gate2__s1",
+      "turnIndex": 10,
+      "text": "The access code for the Ember Tapir yard is 0873VMX7.",
+      "marker": "0873VMX7",
+      "kind": "distractor"
+    }
+  ]
+}

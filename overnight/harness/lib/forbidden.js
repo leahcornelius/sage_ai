@@ -39,9 +39,11 @@ function collectForbidden(node, path = "$", out = []) {
 function assertNoForbidden(tree, label = "dataset") {
   const hits = collectForbidden(tree);
   if (hits.length > 0) {
+    // Redact the matched value: echoing it into the thrown error would leak the very
+    // sensitive text we are refusing into logs/telemetry. The path locates the hit.
     const sample = hits
       .slice(0, 8)
-      .map((h) => `${h.path} => "${h.value}"`)
+      .map((h) => `${h.path} => [redacted]`)
       .join("\n  ");
     throw new Error(
       `Forbidden-word validation FAILED for ${label}: ${hits.length} match(es) of /secret|password|token|api ?key|card|ssn/i:\n  ${sample}`

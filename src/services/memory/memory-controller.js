@@ -8,6 +8,7 @@ function createMemoryController({
   config,
   logger,
   mem0Adapter,
+  localExtractorAdapter,
   zepAdapter,
   mnemosyneAdapter,
   redisCache,
@@ -215,7 +216,17 @@ function createMemoryController({
       maxTokens: config.memory.contextMaxTokens,
     });
 
-    const partial = !graphResult.ok || !semanticResult.ok || !episodicResult.ok || Date.now() > deadline;
+    // `partial` reflects an ENABLED memory source failing — NOT a deliberately-disabled
+    // adapter being absent. runAdapter returns { skipped:true, reason:"disabled" } for a
+    // config-disabled adapter; with Zep off (the default) treating that as partial made
+    // every result partial and the flag meaningless. A tripped circuit / timeout / error
+    // on an enabled source (reason !== "disabled") still counts as degraded.
+    const degraded = (result) => !result.ok && result.reason !== "disabled";
+    const partial =
+      degraded(graphResult) ||
+      degraded(semanticResult) ||
+      degraded(episodicResult) ||
+      Date.now() > deadline;
     const budgetExceeded = Date.now() > deadline;
 
     if (contextBlock) {
@@ -343,9 +354,37 @@ function createMemoryController({
             }),
           countResults: true,
         });
-        const facts = extractedFacts.ok && Array.isArray(extractedFacts.value)
+        const mem0Facts = extractedFacts.ok && Array.isArray(extractedFacts.value)
           ? extractedFacts.value
           : [];
+
+        // Local clean-fact extraction (Experiment 5): a $0, local replacement for the
+        // dead cloud-mem0 path, gated by its own flag (SAGE_CLEANFACT_ENABLED) so mem0
+        // can stay OFF. Disabled by default → runAdapter short-circuits with
+        // reason:"disabled" (no operation call) and contributes no facts.
+        const cleanfactExtracted = await runAdapter({
+          adapterName: "cleanfact",
+          operationName: "extractFacts",
+          timeoutMs: config.memory.timeouts.cleanfactMs,
+          deadline: Date.now() + config.memory.timeouts.cleanfactMs,
+          requestId,
+          logger: operationLogger,
+          operation: () =>
+            localExtractorAdapter.extractFacts({
+              scopeKey,
+              conversationId,
+              role,
+              messageText,
+              messageId,
+              timestamp,
+            }),
+          countResults: true,
+        });
+        const cleanFacts = cleanfactExtracted.ok && Array.isArray(cleanfactExtracted.value)
+          ? cleanfactExtracted.value
+          : [];
+
+        const facts = [...mem0Facts, ...cleanFacts];
 
         if (facts.length > 0) {
           await Promise.allSettled([
@@ -446,12 +485,14 @@ function createMemoryController({
       checkHealthAdapter("zep", zepAdapter?.ping),
       checkHealthAdapter("redis", redisCache?.ping),
       checkHealthAdapter("mnemosyne", mnemosyneAdapter?.ping),
+      checkHealthAdapter("cleanfact", localExtractorAdapter?.ping),
     ]);
     const result = {
       mem0: toHealthStatus(checks[0]),
       zep: toHealthStatus(checks[1]),
       redis: toHealthStatus(checks[2]),
       mnemosyne: toHealthStatus(checks[3]),
+      cleanfact: toHealthStatus(checks[4]),
     };
 
     operationLogger.debug({ requestId, memoryHealth: result }, "Resolved memory subsystem health");
@@ -598,6 +639,9 @@ function createMemoryController({
 
     if (adapterName === "mem0") {
       return Boolean(mem0Adapter?.enabled);
+    }
+    if (adapterName === "cleanfact") {
+      return Boolean(localExtractorAdapter?.enabled);
     }
     if (adapterName === "zep") {
       return Boolean(zepAdapter?.enabled);

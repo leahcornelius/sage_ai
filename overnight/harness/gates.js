@@ -5,7 +5,7 @@
 //     Structural failures halt immediately (no retry, no config/code change).
 
 import { HttpError } from "./lib/sage-client.js";
-import { scoreSet, computeUtility } from "./lib/score.js";
+import { scoreSet, scoreQuestion, computeUtility } from "./lib/score.js";
 import { verifyCompleteness, sleep } from "./lib/supervisor.js";
 
 const CONFIG_KEYS = ["semanticTopK", "episodicTopK", "graphMaxResults", "contextMaxTokens"];
@@ -253,10 +253,12 @@ async function runGate2({ client, dataset, model, log }) {
         return { pass: false, structural: true, reason: "semanticTopK=1 vs 30 changed nothing (knob ignored or cache masking)", evidence: { semantic: semanticEvidence } };
       }
 
-      // ---- scopeFilter toggle changes behaviour (spec §6) ----
-      // Fixture: in-scope gold + same-attribute lookalikes in a SECOND scope. With
-      // scopeFilter OFF the cross-scope lookalikes appear; ON they are filtered out,
-      // so the returned semantic ids/length/tokens change (same crispness as the K check).
+      // ---- scopeFilter toggle changes SEARCH behaviour (spec §6; V0.3) ----
+      // Fixture: in-scope gold + same-attribute lookalikes in a SECOND scope. The toggle
+      // now switches the search itself, not a post-filter: OFF = global recall over the
+      // whole collection (cross-scope lookalikes appear); ON = a within-scope Qdrant
+      // payload-filter search (only in-scope points), so the returned semantic
+      // ids/length/tokens / gold-presence change (same crispness as the K check).
       const sfQ = dataset.scopeFilterGate.question;
       const sfOff = { semanticTopK: 10, episodicTopK: 0, graphMaxResults: 20, contextMaxTokens: 4000, scopeFilter: 0 };
       const sfOn = { ...sfOff, scopeFilter: 1 };
@@ -380,45 +382,96 @@ async function runGate3({ client, dataset, model, lambda, keepThreshold, store, 
   );
 }
 
-// ---- Gate 1b: the semantic channel is actually exercised (spec §5) ---------
-// The linchpin. Proves P0 worked: gold arrives via SEMANTIC, not the 20-turn
-// episodic buffer. Runs after Gate 1, before the loop, at scopeFilter OFF and a
-// GENEROUS contextMaxTokens (2000) so we measure CHANNEL ATTRIBUTION, not the
-// cost-tuned trim (semantic is popped second in the trim order, so a tight budget
-// would evict semantic gold and look like a P0 failure). Three deterministic
-// contrasts on the dev set (no model calls):
-//   A = s5/e3  (both channels)         B = s5/e0  (semantic-isolated; episodic
-//   floors at 1 turn, which burial guarantees is filler)   C = s0/e3 (episodic-
-//   isolated; semanticTopK=0 genuinely returns [] — verified, unlike episodicTopK=0).
-// Floors are computed on single-hop + temporal (multi-hop reported separately:
-// computeMrr ranks only the first marker, and multi needs ALL markers, which would
-// depress the aggregate for reasons unrelated to "did semantic work").
-// On failure: HALT with a P0-too-weak diagnosis. Do NOT fix-and-retry to force a pass.
+// ---- Gate 1b: the SCOPED semantic channel carries the gold (spec §5; V0.3 reframe) ---
+// The linchpin, reframed for Experiment 3. Exp2 proved the UNFILTERED channel cannot
+// surface a buried fact among homogeneous cross-scope lookalikes — that is the premise
+// of scope-filtering, not a failure to fix. So Gate 1b now tests the channel actually
+// being used: the within-scope payload-filter (scopeFilter ON). Its purpose is unchanged
+// — prove SEMANTIC, not the 20-turn episodic buffer, does the work — at a GENEROUS
+// contextMaxTokens (2000) so we measure channel attribution, not the cost-tuned trim.
+// Deterministic, no model calls. Probes on the dev set:
+//   A   = s5/e3  scopeFilter ON   (scoped, both channels)
+//   B'  = s5/e0  scopeFilter ON   (scoped, semantic-isolated; episodic floors at 1
+//                                  filler turn, which burial guarantees)
+//   C   = s0/e3  scopeFilter OFF  (episodic-isolated; semanticTopK=0 returns [])
+//   B_unscoped = s5/e0 scopeFilter OFF (unscoped semantic via the recall pipeline; the
+//                                  contrast that defines the headline gap)
+//   B_dbsearch_unscoped = raw unscoped db.search (harness control probe, measurement-only,
+//                                  $0, NOT a pass/fail criterion): isolates the headline
+//                                  gap into pure-scoping vs recall-pipeline effects.
+// Floors on single-hop + temporal (multi reported separately: computeMrr ranks only the
+// first marker, and multi needs ALL markers). On failure: HALT with the scoped-channel
+// diagnosis. Do NOT fix-and-retry to force a pass.
 const GATE1B = {
   contextMaxTokens: 2000,
   meanMrrAMin: 0.2,
   meanRecallBMin: 0.5,
   meanRecallCMax: 0.1,
-  dominanceAddMin: 0.4,
-  dominanceRatio: 3,
+  scopedGapMin: 0.3,
   attributionMin: 0.7,
 };
 
-async function runGate1b({ client, dataset, model, lambda, concurrency, log }) {
+// Control probe (measurement-only): raw unscoped vector search mirroring the ON path's
+// db.search but WITHOUT the scope filter, scored identically to the live probes via
+// scoreQuestion on a synthetic retrieve result. Same embedder (Ollama nomic-embed-text
+// via /v1/embeddings) and same collection as Sage, so vectors share a space. $0, local,
+// introduces no Sage/production behaviour. Returns a Map id -> { recall, mrr }.
+async function dbSearchUnscopedProbe({ qdrant, collection, ollama, embedModel, questions, topK, log }) {
+  const out = new Map();
+  for (const q of questions) {
+    let recall = 0;
+    let mrr = 0;
+    try {
+      const [vector] = await ollama.embed({ model: embedModel, input: q.query });
+      const hits = await qdrant.search(collection, vector, { limit: topK, minScore: 0.3 });
+      const synthetic = {
+        semanticMemories: hits.map((h) => ({ text: h.text })),
+        contextBlock: hits.map((h) => h.text).join("\n"),
+        contextTokenCount: 0,
+      };
+      const scored = scoreQuestion(synthetic, q);
+      recall = scored?.recall ?? 0;
+      mrr = scored?.mrr ?? 0;
+    } catch (error) {
+      log(`  [Gate1b control probe] ${q.id} raw db.search failed: ${error.message}`);
+    }
+    out.set(q.id, { recall, mrr });
+  }
+  return out;
+}
+
+// Gate 1b — the linchpin: prove the semantic channel is actually exercised and that
+// scoping (not the pipeline) is what helps. It runs four probes per floor question and
+// reports their means as EVIDENCE:
+//   A          — full config (sanity: meanMrrA must clear the floor)
+//   B' (prime) — scoped semantic-only recall                → evidence.meanRecallBprime
+//   C          — episodic-only recall (must stay LOW; no leakage)
+//   B_unscoped — same semantic search without the scope filter
+// The headline `scopedGap = recall(B') − recall(B_unscoped)` must exceed the threshold,
+// and a measurement-only control probe (raw unscoped db.search) attributes the gap to
+// scoping vs. pipeline effects.
+//
+// GOTCHA: the pass/fail booleans live under `evidence.criteria` (e.g. criteria.meanRecallB
+// is the boolean `meanRecallB >= min`), while the NUMERIC value is `evidence.meanRecallBprime`.
+// Reports must read `meanRecallBprime`, not `meanRecallB` (the latter at the top level does
+// not exist; under criteria it is a boolean) — see overnight/harness/loop.js RUN_REPORT.
+async function runGate1b({ client, dataset, model, lambda, concurrency, qdrant, collection, ollama, embedModel = "nomic-embed-text", log }) {
   return runMechanicalGate(
     "Gate1b",
     async () => {
       const cm = GATE1B.contextMaxTokens;
-      const cfgA = { semanticTopK: 5, episodicTopK: 3, graphMaxResults: 20, contextMaxTokens: cm, scopeFilter: 0 };
-      const cfgB = { ...cfgA, episodicTopK: 0 }; // semantic-isolated
-      const cfgC = { ...cfgA, semanticTopK: 0 }; // episodic-isolated
+      const cfgA = { semanticTopK: 5, episodicTopK: 3, graphMaxResults: 20, contextMaxTokens: cm, scopeFilter: 1 }; // scoped, both
+      const cfgB = { ...cfgA, episodicTopK: 0 }; // B': scoped, semantic-isolated
+      const cfgC = { ...cfgA, semanticTopK: 0, scopeFilter: 0 }; // episodic-isolated (unscoped; sf moot at s0)
+      const cfgBu = { ...cfgA, episodicTopK: 0, scopeFilter: 0 }; // B_unscoped: unscoped semantic via the recall pipeline
       const dev = dataset.dev;
 
       const A = await evalConfig({ client, questions: dev, model, lambda, config: cfgA, concurrency });
       const B = await evalConfig({ client, questions: dev, model, lambda, config: cfgB, concurrency });
       const C = await evalConfig({ client, questions: dev, model, lambda, config: cfgC, concurrency });
+      const Bu = await evalConfig({ client, questions: dev, model, lambda, config: cfgBu, concurrency });
 
-      const runs = [A, B, C];
+      const runs = [A, B, C, Bu];
       if (runs.some((r) => r.agg.budgetExceededCount > 0)) {
         return { pass: false, transient: true, reason: "budget exceeded on some retrievals (warmup)" };
       }
@@ -430,6 +483,7 @@ async function runGate1b({ client, dataset, model, lambda, concurrency, log }) {
       const Aq = byId(A.agg);
       const Bq = byId(B.agg);
       const Cq = byId(C.agg);
+      const Buq = byId(Bu.agg);
       const floorQs = dev.filter(
         (q) => (q.type === "single" || q.type === "temporal") && q.requiredMarkers.length > 0
       );
@@ -439,38 +493,71 @@ async function runGate1b({ client, dataset, model, lambda, concurrency, log }) {
       };
 
       const meanMrrA = meanOf(floorQs, Aq, "mrr");
-      const meanRecallB = meanOf(floorQs, Bq, "recall");
+      const meanRecallB = meanOf(floorQs, Bq, "recall"); // B' scoped semantic-only
       const meanRecallC = meanOf(floorQs, Cq, "recall");
+      const meanRecallBu = meanOf(floorQs, Buq, "recall"); // B_unscoped
 
-      // per-question attribution: of recall_A==1 items, the fraction with mrr_A>0
-      // (guards the night-one "recall via episodic, MRR=0" pathology per-question).
+      // Control probe (measurement-only, $0, not a criterion): raw unscoped db.search.
+      // pureScoping  = B' - B_dbsearch_unscoped (same db.search primitive, +/- the filter)
+      // pipeline     = B_dbsearch_unscoped - B_unscoped (raw db.search vs recall pipeline's
+      //                diversity-rerank/intent). Their sum is the headline gap B'-B_unscoped.
+      const dbq = await dbSearchUnscopedProbe({ qdrant, collection, ollama, embedModel, questions: floorQs, topK: cfgB.semanticTopK, log });
+      const meanRecallBdb = meanOf(floorQs, dbq, "recall");
+      const pureScopingEffect = meanRecallB - meanRecallBdb;
+      const pipelineEffect = meanRecallBdb - meanRecallBu;
+
+      // per-question attribution (on scoped A): of recall_A==1 items, the fraction with
+      // mrr_A>0 (guards the "recall present but MRR=0" pathology per-question).
       const recall1 = floorQs.filter((q) => (Aq.get(q.id)?.recall ?? 0) === 1);
       const attribution = recall1.length
         ? recall1.filter((q) => (Aq.get(q.id)?.mrr ?? 0) > 0).length / recall1.length
         : 0;
 
-      // multi-hop reported separately
+      // multi-hop reported separately (scoped)
       const multiQs = dev.filter((q) => q.type === "multi");
       const multiRecallA = meanOf(multiQs, Aq, "recall");
       const multiRecallB = meanOf(multiQs, Bq, "recall");
 
-      const dominanceAdd = meanRecallB - meanRecallC;
-      const dominanceRatioOk = meanRecallB >= GATE1B.dominanceRatio * Math.max(meanRecallC, 0.05);
+      // per-item ranks across all probes (evidence for the halt write-up)
+      const perItem = floorQs.map((q) => ({
+        id: q.id,
+        type: q.type,
+        A: { recall: Aq.get(q.id)?.recall ?? 0, mrr: Aq.get(q.id)?.mrr ?? 0 },
+        Bprime: { recall: Bq.get(q.id)?.recall ?? 0, mrr: Bq.get(q.id)?.mrr ?? 0 },
+        C: { recall: Cq.get(q.id)?.recall ?? 0 },
+        Bunscoped: { recall: Buq.get(q.id)?.recall ?? 0, mrr: Buq.get(q.id)?.mrr ?? 0 },
+        BdbsearchUnscoped: { recall: dbq.get(q.id)?.recall ?? 0, mrr: dbq.get(q.id)?.mrr ?? 0 },
+      }));
+
+      const scopedGap = meanRecallB - meanRecallBu; // the headline gap
       const criteria = {
         meanMrrA: meanMrrA >= GATE1B.meanMrrAMin,
         meanRecallB: meanRecallB >= GATE1B.meanRecallBMin,
         meanRecallC: meanRecallC <= GATE1B.meanRecallCMax,
-        dominance: dominanceAdd >= GATE1B.dominanceAddMin && dominanceRatioOk,
+        scopedGap: scopedGap >= GATE1B.scopedGapMin,
         attribution: attribution >= GATE1B.attributionMin,
       };
       const evidence = {
-        configs: { A: fullConfig(cfgA), B: fullConfig(cfgB), C: fullConfig(cfgC) },
-        meanMrrA, meanRecallB, meanRecallC,
-        dominanceAdd, dominanceRatioOk,
-        attribution, recall1Count: recall1.length,
-        multiRecallA, multiRecallB,
+        configs: { A: fullConfig(cfgA), Bprime: fullConfig(cfgB), C: fullConfig(cfgC), Bunscoped: fullConfig(cfgBu) },
+        meanMrrA,
+        meanRecallBprime: meanRecallB,
+        meanRecallC,
+        meanRecallBunscoped: meanRecallBu,
+        scopedGap,
+        controlProbe: {
+          meanRecallBdbsearchUnscoped: meanRecallBdb,
+          pureScopingEffect,
+          pipelineEffect,
+          note: "measurement-only; raw unscoped db.search; NOT a pass/fail criterion",
+        },
+        attribution,
+        recall1Count: recall1.length,
+        multiRecallA,
+        multiRecallBprime: multiRecallB,
+        floorCount: floorQs.length,
         thresholds: GATE1B,
         criteria,
+        perItem,
         offlinePreview: dataset.meta?.offlinePreview,
       };
 
@@ -480,19 +567,24 @@ async function runGate1b({ client, dataset, model, lambda, concurrency, log }) {
         return {
           pass: false,
           structural: true,
-          p0TooWeak: true,
+          scopedChannelWeak: true,
           reason:
-            `Gate1b FAILED [${failed.join(", ")}] — the benchmark does not stress the semantic ` +
-            `channel hard enough (P0 too weak). meanMrrA=${meanMrrA.toFixed(3)} ` +
-            `recallB(semantic-only)=${meanRecallB.toFixed(3)} recallC(episodic-only)=${meanRecallC.toFixed(3)}. ` +
-            `If recallC is high, burial failed; if recallB is low, distractors are too strong or the ` +
-            `paraphrase gap too wide. Strengthen P0 (deeper burial / more facts) — do NOT fix-and-retry.`,
+            `Gate1b (reframed, scoped channel) FAILED [${failed.join(", ")}]. ` +
+            `scoped: mrrA=${meanMrrA.toFixed(3)} recallB'(scoped semantic)=${meanRecallB.toFixed(3)} ` +
+            `recallC(episodic-only)=${meanRecallC.toFixed(3)} attrib=${attribution.toFixed(2)}; ` +
+            `headline gap B'-B_unscoped=${scopedGap.toFixed(3)} (>=${GATE1B.scopedGapMin}); ` +
+            `control B_dbsearch_unscoped=${meanRecallBdb.toFixed(3)} ` +
+            `(pureScoping=${pureScopingEffect.toFixed(3)} pipeline=${pipelineEffect.toFixed(3)}). ` +
+            `The within-scope payload-filter did not carry the gold in the live pipeline (the offline ` +
+            `rank-1-2 evidence did not transfer) or the scoping gap is insufficient. ` +
+            `Per the run rule: accept the halt, do NOT fix-and-retry.`,
           evidence,
         };
       }
       log(
-        `  Gate1b: semantic exercised — mrrA=${meanMrrA.toFixed(3)} ` +
-          `recallB=${meanRecallB.toFixed(3)} recallC=${meanRecallC.toFixed(3)} attrib=${attribution.toFixed(2)}`
+        `  Gate1b (scoped): mrrA=${meanMrrA.toFixed(3)} recallB'=${meanRecallB.toFixed(3)} ` +
+          `recallC=${meanRecallC.toFixed(3)} gap=${scopedGap.toFixed(3)} (Bdb=${meanRecallBdb.toFixed(3)} ` +
+          `pureScope=${pureScopingEffect.toFixed(3)} pipe=${pipelineEffect.toFixed(3)}) attrib=${attribution.toFixed(2)}`
       );
       return { pass: true, evidence };
     },
