@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
   const adapterLogger = logger.child({ component: "mnemosyne-adapter" });
   const enabled = config.memory.mode !== "off" && Boolean(mnemosyneClient);
@@ -116,31 +118,69 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
 
     const results = [];
     for (const rawFact of facts) {
-      const normalized = normalizeFact(rawFact, scopeKey, canonicalFacts);
-      const storageText = [
-        `[scope:${scopeKey}]`,
-        `[fact_key:${normalized.factKey}]`,
-        `[version:${normalized.version}]`,
-        `[status:${normalized.status}]`,
-        `[confidence:${normalized.confidence ?? "unknown"}]`,
-        `[event_time:${normalized.eventTime || "unknown"}]`,
-        `[ingested_at:${normalized.ingestedAt}]`,
-        normalized.text,
-      ].join(" ");
+      const text = typeof rawFact?.text === "string" ? rawFact.text.trim() : "";
+      if (!text) continue;
 
-      const memoryId = await mnemosyneClient.store({
-        text: storageText,
-        category: normalized.category || "semantic",
-        ...(normalized.eventTime ? { eventTime: normalized.eventTime } : {}),
-        ...(normalized.confidence !== null ? { importance: normalized.confidence } : {}),
+      const factKey =
+        rawFact.factKey ||
+        crypto.createHash("sha256").update(`${scopeKey}|${text.toLowerCase()}`).digest("hex");
+      const version =
+        Number.isInteger(rawFact.version) && rawFact.version > 0 ? rawFact.version : 1;
+      const status = rawFact.status || "active";
+      const category = rawFact.category || "semantic";
+      const eventTime = rawFact.eventTime || null;
+      const confidence = Number.isFinite(rawFact.confidence) ? rawFact.confidence : null;
+
+      // CLEAN-FACT HYGIENE (Experiment 5 — resolves D3.1): embed the fact TEXT ONLY.
+      // The previous path prepended ~7 structural tags ([scope][fact_key][version]…)
+      // into the embedded string, polluting the vector exactly like the episodic
+      // embedding-hygiene bug Exp2 fixed. Structural fields now live in the Qdrant
+      // payload `metadata` (NOT embedded), so the cosine is driven by fact content
+      // while scopeKey/factKey/etc. remain available for the scope filter.
+      //
+      // RAW STORE (Experiment 4 merge-bug fix, now applied to the semantic path):
+      // write the point DIRECTLY via mnemosy-ai's raw db.store, bypassing
+      // fullStorePipeline's UNCONDITIONAL 0.85/0.92 dedup/merge. The merge would
+      // soft-delete distinct facts and overwrite metadata (dropping scopeKey) — both
+      // corrupts the count and breaks the scope filter. Distinct atomic facts are NOT
+      // duplicates: store every one as a live, scope-tagged point. They are tagged
+      // metadata.memoryClass="semantic_fact" so they live in the same shared
+      // collection as episodic turns and are returned by the scoped semantic search
+      // (db.search filtered on metadata.scopeKey) IN ADDITION to the raw episodic ring
+      // — the clean-fact layer the buried-gold experiment exists to test.
+      const vector = await mnemosyneClient.embeddings.embed(text);
+      const cell = await mnemosyneClient.db.store(text, vector, {
+        memoryType: "semantic",
+        classification: "public",
+        scope: "public",
+        ...(eventTime ? { eventTime } : {}),
+        ...(confidence !== null ? { importance: confidence } : {}),
+        metadata: {
+          memoryClass: "semantic_fact",
+          scopeKey,
+          factKey,
+          version,
+          status,
+          category,
+          sourceMessageId: rawFact.sourceMessageId || rawFact.messageId || null,
+          sourceTurnIds: Array.isArray(rawFact.sourceTurnIds) ? rawFact.sourceTurnIds : [],
+          eventTime,
+          ingestedAt: rawFact.ingestedAt || new Date().toISOString(),
+          source: (rawFact.metadata && rawFact.metadata.source) || "local-cleanfact",
+        },
       });
 
+      // Keep identity-category facts available to getIdentityContext (unchanged behaviour).
+      if (isIdentityCategory(category)) {
+        canonicalFacts.set(`${scopeKey}|${factKey}`, { text, scopeKey, category });
+      }
+
       results.push({
-        memoryId: memoryId || normalized.factId,
-        factId: normalized.factId,
-        factKey: normalized.factKey,
-        version: normalized.version,
-        status: normalized.status,
+        memoryId: cell?.id || factKey,
+        factId: rawFact.factId || factKey,
+        factKey,
+        version,
+        status,
       });
     }
 
@@ -263,81 +303,11 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
   };
 }
 
-function normalizeFact(fact, scopeKey, canonicalFacts) {
-  const now = new Date().toISOString();
-  const normalized = {
-    ...fact,
-    scopeKey,
-    ingestedAt: fact.ingestedAt || now,
-    confidence: normalizeConfidence(fact.confidence),
-    category: fact.category || "semantic",
-    status: fact.status || "active",
-    version: Number.isInteger(fact.version) && fact.version > 0 ? fact.version : 1,
-    text: typeof fact.text === "string" ? fact.text.trim() : "",
-  };
-
-  const conflictKey = `${scopeKey}|${normalized.subject || ""}|${normalized.predicate || ""}`;
-  const previous = canonicalFacts.get(conflictKey);
-  if (!previous) {
-    canonicalFacts.set(conflictKey, normalized);
-    return normalized;
-  }
-
-  const winner = compareFacts(previous, normalized) >= 0 ? previous : normalized;
-  if (winner === normalized) {
-    normalized.version = previous.version + 1;
-    normalized.status = "active";
-    canonicalFacts.set(conflictKey, normalized);
-    return normalized;
-  }
-
-  normalized.version = previous.version + 1;
-  normalized.status = "conflict";
-  return normalized;
-}
-
-function compareFacts(existing, incoming) {
-  const existingEvent = asTimestamp(existing.eventTime);
-  const incomingEvent = asTimestamp(incoming.eventTime);
-  if (incomingEvent !== existingEvent) {
-    return incomingEvent - existingEvent;
-  }
-
-  const existingIngested = asTimestamp(existing.ingestedAt);
-  const incomingIngested = asTimestamp(incoming.ingestedAt);
-  if (incomingIngested !== existingIngested) {
-    return incomingIngested - existingIngested;
-  }
-
-  const existingConfidence = Number.isFinite(existing.confidence) ? existing.confidence : -1;
-  const incomingConfidence = Number.isFinite(incoming.confidence) ? incoming.confidence : -1;
-  if (incomingConfidence !== existingConfidence) {
-    return incomingConfidence - existingConfidence;
-  }
-
-  return 0;
-}
-
-function asTimestamp(value) {
-  if (!value) {
-    return -1;
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? -1 : date.getTime();
-}
-
-function normalizeConfidence(value) {
-  if (!Number.isFinite(value)) {
-    return null;
-  }
-  if (value <= 0) {
-    return 0;
-  }
-  if (value >= 1) {
-    return 1;
-  }
-  return Number(value.toFixed(4));
-}
+// NOTE (Experiment 5): the former normalizeFact / compareFacts / asTimestamp /
+// normalizeConfidence helpers (mem0-era cross-fact conflict + versioning) were
+// removed. The clean-fact path stores each distinct atomic fact as its own raw,
+// scope-tagged point and does NOT run cross-fact conflict resolution — distinct
+// atomic facts are not duplicates. See upsertSemanticFacts above.
 
 function isIdentityCategory(category) {
   const normalized = String(category || "").toLowerCase();

@@ -40,11 +40,16 @@ Qdrant payload's `metadata` object, **not** in the embedded text.
 
 **Implementation:** `mnemosyne-adapter.js:52-69` (the committed Exp2 fix).
 
-**Documented divergence (D3.1, not fixed):** `upsertSemanticFacts` (mnemosyne-adapter.js:121-130)
-still embeds `[scope][fact_key][version]…` tags in the stored text — the same tag-pollution
-bug episodic had. It is **dormant** (fed only by the mem0 path, which is OFF), and fixing it
-reaches into the deferred mem0 subsystem. Apply as part of the eventual clean-fact-path
-decision (see #8).
+**D3.1 — FIXED in Experiment 5** (`clean-fact-hygiene.contract.test.mjs`): `upsertSemanticFacts`
+was rewritten to embed the **fact text only** (no `[scope][fact_key][version]…` tags) and store
+each distinct atomic fact via **raw `db.store`** (bypassing the merge, like `storeEpisodic`), with
+structural fields in payload `metadata` (`memoryClass:"semantic_fact"`, `scopeKey`, `factKey`,
+`version`, `status`, `sourceMessageId`, `sourceTurnIds`). This resolves the tag-pollution bug AND
+applies the Exp4 merge-bug fix to the semantic path. Clean-fact points live in the shared
+collection tagged `semantic_fact`, so the scoped semantic search (`db.search` filtered on
+`metadata.scopeKey`) returns them **in addition to** the raw episodic ring. Fed by the local
+clean-fact extractor (see #8), no longer the dead mem0 path. The mem0-era `normalizeFact`
+conflict/versioning helpers were removed (distinct atomic facts are not duplicates).
 
 ---
 
@@ -129,9 +134,15 @@ returns `[]` whenever `!client` (line 27) — so with no key the adapter reports
 but is **silently inert** (0 facts, no error). Even with a key, extraction is the mem0
 **cloud** service (`MemoryClient`, api.mem0.ai) — networked/nondeterministic/billable.
 
-**FLAG (architecture decision — your call, likely its own experiment):** should Sage have a
-working clean-fact extraction path at all? If yes, a local-first $0 design needs a different
-(e.g. local-LLM) extractor, not cloud mem0. Tied to D3.1 (#2). **Not fixed.**
+**RESOLVED in Experiment 5 — local clean-fact extractor:** the architecture question ("should a
+clean-fact path exist, and if so local not cloud?") was answered by building a **$0 local
+extractor** (`src/services/memory/local-extractor-adapter.js` + `ollama-chat.js`): per-turn
+`qwen3:14b`/Ollama extraction (temperature 0 + fixed seed) of distinct atomic facts, preserving
+codes/identifiers verbatim, gated by **`SAGE_CLEANFACT_ENABLED`** (default OFF; the bench turns it
+ON). **mem0 stays OFF/inert** — this is a sibling adapter, not a mem0 revival. Validated by
+`overnight/harness/cleanfact-validate.mjs` (Gate 1a marker-preservation 12/12, Gate 1c determinism
+1.0). Facts are stored clean per the rewritten `upsertSemanticFacts` (#2). The mem0-OFF contract
+above is unchanged.
 
 ---
 
