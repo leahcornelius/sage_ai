@@ -58,3 +58,55 @@ CARRYOVER: PHASE-0 SYNTH machinery-validation case; spawn/structured-output path
 - Demoted proof: one **Agent-tool** spawn → valid parseable four-field output.
 - `claude -p` headless smoke test: returns cleanly, exit 0.
 **Machinery proven → proceed to Phase 1.** (Real-adjudication budget consumed by Phase 0: 1 of 20.)
+
+## 2026-06-15T09:39:06.900Z — gate G1b — round 1 — spawn #2 (claude -p)
+**Package summary:**
+```
+### GATE FAILURE PACKAGE — G1b (reframed scoped-channel gate, Phase 2)
+
+**Source:** a real gates evaluation from the Phase-2 dry-run smoke test (run
+`r2026061508180_1560_dry`). Dry-run = the SAME gates.js on the SAME clean-fact substrate; it
+halted at G1b and tore down. Retrieval is deterministic (Gate 1 deterministic=true), so a
+non-dry gates run reproduces these numbers. Evidence: `dryrun-gates-evidence.log` in this run dir.
+
+**Substrate under test:** Experiment 5's NEW local clean-fact layer (qwen3:14b extraction →
+clean, scope-tagged `semantic_fact` points stored raw, embed fact-text only). This is the first
+time the bench has run with semantic facts populated (prior arc runs were episodic-only because
+mem0 was inert). Populate: 620 turns → **1241 live points** (~620 episodic + ~621 clean-fact),
+completeness=true (all gold retrievable scoped at generous K). Benchmark: 620 ingests, 48 dev /
+24 held-out questions, goldFallbackRate 0.060 (94% of gold had a proper paraphrase gap — valid).
+
+**Numbers:**
+```json
+{
+  "gate": "G1b (reframed scoped channel)",
+  "result": "FAILED on scopedGap (structural halt)",
+  "criteria": {
+    "meanMrrA (>=0.2)":        {"value": 0.731, "pass": true
+…[truncated]…
+```
+**Adjudicator output:**
+```
+DECISION: ACCEPT_HALT_FALLBACK
+HYPOTHESIS: n/a
+RATIONALE: 4/5 G1b criteria pass and the failure is structurally honest, not a substrate bug. The only miss — scopedGap 0.156 < 0.3 — is small precisely *because the clean facts are good*: unscoped recall via the pipeline already reaches 0.500 (raw db.search 0.438 + pipeline lift 0.063), so scoping's marginal value is only 0.156. This is the V0.3 verdict ("scope-filtering is incremental, not dramatic") reconfirmed on a substrate where the semantic channel is, for the first time, genuinely populated and exercised (recallC=0.000, recallB'=0.656, attrib=1.00). I verified live numbers, not the offline preview (the halt reason itself flags that offline rank-1-2 did not transfer — correct to distrust it).
+
+No distinct, principled, non-gaming hypothesis exists to move scopedGap. I tested three and rejected each: (1) **make clean facts only-scoped** — the Builder flagged this and I reject it; it suppresses the unscoped baseline to widen the gap, degrading the system to move the scoreboard (fails the "system vs scoreboard" test). (2) **restore BM25/hybrid on the unscoped path** — would *raise* B_unscoped and *shrink* the gap, and is a deferred harness item; counterproductive. (3) **reframe scopedGap as orthogonal to the clean-fact hypothesis** — a fair observation to *report*, but I cannot alter a gate, the measurement is already honestly computed (no bug to make "more honest"), and using it to forward-declare a pass would be exactly the reframe the discipline forbids. Per §3/§6, with no genuinely new hypothesis, the rule is ACCEPT_HALT_FALLBACK, and the explicit bias-to-fallback on interpretive calls reinforces it — this is an interpretive call and I am taking the safe side. Fallback (not HALT_ENTIRELY) because a clean, valuable result exists to report. Round 0 of 3 used on G1b; I am deliberately not spending a round on a tweak.
+
+Fallback to execute: do not proceed past G1b into the loop; report the honest negative on scopedGap alongside the verified clean-fact gain as best config (clean-fact ON; baselineUtility ~0.11 → 0.50, buried-gold scoped recall 0.000 → 0.656). **Do not revert the clean-fact layer** — it passed Gate 1 and is the better substrate; the negative is specific to the scopedGap criterion, not the layer. The clean-fact win is on the **synthetic bench only** and must be caveated as such (arc transfer-discipline) — credit it as general only after LoCoMo/held-out transfer-verification.
+CARRYOVER: State — Exp5 Phase 2 dry-run (r2026061508180_1560_dry) halted at G1b on scopedGap=0.156<0.3; all artifacts verified, numbers reproduce, retrieval deterministic so a non-dry rerun is not required (would burn cost for no new info). G1b is structural (no auto-retry). Decision: ACCEPT_HALT_FALLBACK — report honest negative + keep clean-fact-ON as best config; layer NOT reverted. Rounds used on G1b: 0/3 (chose not to open one — no non-gaming mechanism to raise scopedGap). Hypotheses rejected this run: (a) only-scoped clean facts = gaming (suppresses unscoped baseline); (b) BM25/hybrid restore = shrinks the gap + deferred; (c) "scopedGap is orthogonal" = valid report-only observation, NOT grounds to forward-pass (cannot alter gate; measurement already honest). Open concerns for next adjudicator: (1) the clean-fact 0.000→0.656 gain is SYNTHETIC-only — demand LoCoMo/held-out transfer before crediting as a real win; (2) scopedGap orthogonality vs the clean-fact hypothesis is a legitimate human-only gate-redefinition question — surface to Nyx, do not self-resolve; (3) confirm the final write-up does not silently upgrade the synthetic gain to a general claim or bury the scopedGap miss.
+```
+**Builder action:** (builder to act)
+**Gate re-result:** (pending)
+---
+
+### Builder action on the G1b adjudication (above)
+**Decision honored: ACCEPT_HALT_FALLBACK.** Builder did NOT proceed past G1b into the loop, did
+NOT revert the clean-fact layer (it passed Gate 1; the miss is specific to the scopedGap criterion),
+and did NOT run a standalone LoCoMo (the Adjudicator flagged transfer-verification as a human-only
+open concern, not a Builder action, and said do not proceed past G1b). The clean-fact recall gain
+(episodic 0.000 → scoped-semantic 0.656; baseline utility ~0.11 → 0.50) is recorded as the best
+config, **caveated as synthetic-bench-only / transfer-unverified** (G4 LoCoMo was never reached).
+The two human-only questions (synthetic→transfer; scopedGap-vs-clean-fact gate redefinition) are
+surfaced to Nyx in EXPERIMENT_5_OUTCOME.md. **Gate re-result: G1b remains FAILED (accepted, not
+retried).** G1b rounds used: 1 spawn / 3; total adjudicator spawns: 2 / 20.
