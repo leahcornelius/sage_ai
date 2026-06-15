@@ -873,7 +873,7 @@ async function finalReport(ctx, { dataset, baseline, best, gridBest, state, star
   const gen = dataset.meta?.generation;
 
   const body = [
-    "# RUN_REPORT.md — Semantic-stress retrieval loop + scope-filtering (V0.2)",
+    "# RUN_REPORT.md — Semantic-stress retrieval loop + scope-filtering",
     "",
     `Run \`${ctx.runid}\` — ${state.iteration} iterations, ${elapsedH}h elapsed.`,
     "",
@@ -888,7 +888,7 @@ async function finalReport(ctx, { dataset, baseline, best, gridBest, state, star
     "",
     "## Gate 1b — semantic channel exercised (the linchpin)",
     g1b
-      ? `PASS. meanMRR(A)=${f3(g1b.meanMrrA)}; semantic-only recall(B)=${f3(g1b.meanRecallB)}; ` +
+      ? `PASS. meanMRR(A)=${f3(g1b.meanMrrA)}; semantic-only recall(B')=${f3(g1b.meanRecallBprime ?? g1b.meanRecallB)}; ` +
         `episodic-only recall(C)=${f3(g1b.meanRecallC)}; attribution=${f3(g1b.attribution)}; ` +
         `multi-hop recall(A)=${f3(g1b.multiRecallA)} (reported separately). ` +
         `This run measures semantic retrieval (night one had meanMRR=0).`
