@@ -89,10 +89,16 @@ class SageClient {
   }
 
   // Used ONLY by the capped checkpoint. Real upstream model call.
-  async chatCompletion({ model, messages, chatId, timeoutMs = 60000 }) {
+  // skipMemoryWrite=true puts Sage in read-only mode (retrieve, do not ingest) so a
+  // scored scope is never contaminated by the checkpoint's own question/answer turns.
+  async chatCompletion({ model, messages, chatId, skipMemoryWrite = false, timeoutMs = 60000 }) {
     return fetchJson(`${this.baseUrl}/v1/chat/completions`, {
       method: "POST",
-      headers: { ...this._authHeaders, "x-openwebui-chat-id": chatId },
+      headers: {
+        ...this._authHeaders,
+        "x-openwebui-chat-id": chatId,
+        ...(skipMemoryWrite ? { "x-sage-skip-memory-write": "1" } : {}),
+      },
       body: { model, messages, stream: false },
       timeoutMs,
     });

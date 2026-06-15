@@ -71,7 +71,20 @@ function validateChatCompletionsRequest(body, { config, headers } = {}) {
     tools,
     toolChoice,
     lastUserMessage: getLastUserMessageContent(messages),
+    // Read-only answer mode (benchmark checkpoint): when set, the request retrieves
+    // memory context as usual but does NOT write the user turn or schedule assistant
+    // ingestion into the scope — so a scored scope is never contaminated by the
+    // checkpoint's own generated answers. Header-only (not part of the OpenAI body).
+    skipMemoryWrite: isTruthyHeader(headers?.["x-sage-skip-memory-write"]),
   };
+}
+
+function isTruthyHeader(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
 }
 
 function normalizeUserIdentifier(value) {

@@ -23,6 +23,16 @@ function benchEnv({ collection, port, benchKey, qdrantUrl, cacheUrl, graphUrl })
     MNEMOSYNE_COLLECTION_NAME: collection,
     SAGE_MEM0_ENABLED: "false",
     SAGE_ZEP_ENABLED: "false",
+    // Experiment 5: enable the LOCAL clean-fact extractor (qwen3:14b/Ollama) — the
+    // $0 replacement for cloud mem0 (which stays OFF). Per-turn extraction during
+    // /admin/ingest -> processMessage populates clean, scope-tagged semantic_fact
+    // points in addition to the raw episodic ring. Generous ingest-side timeout
+    // because the local 14B model is slow.
+    SAGE_CLEANFACT_ENABLED: "true",
+    SAGE_CLEANFACT_MODEL: "qwen3:14b",
+    SAGE_CLEANFACT_OLLAMA_URL: "http://127.0.0.1:11434",
+    SAGE_CLEANFACT_SEED: "7",
+    SAGE_MEMORY_TIMEOUT_CLEANFACT_MS: "30000",
     // Query cache is disabled via SAGE_REDIS_ENABLED=false: when the redis adapter
     // is disabled the controller short-circuits getQueryContext/setQueryContext
     // entirely (never reaching the in-memory fallback), so cacheHit is always false.
@@ -36,10 +46,9 @@ function benchEnv({ collection, port, benchKey, qdrantUrl, cacheUrl, graphUrl })
     SAGE_MEMORY_MODE: "soft",
     // P1 scope-filter starts OFF; the loop toggles it live via /admin/memory-config.
     SAGE_MEMORY_SCOPE_FILTER_ENABLED: "false",
-    // Benchmark-only: write episodic turns directly to Qdrant, bypassing mnemosy-ai's
-    // unconditional 0.85 dedup/merge which otherwise soft-deletes the (early-planted)
-    // gold facts and strips scopeKey before any retrieval runs. Production stays OFF.
-    SAGE_MEMORY_EPISODIC_RAW_STORE: "true",
+    // NOTE: episodic raw-store is no longer a flag — Experiment 4 made storeEpisodic
+    // always bypass mnemosy-ai's dedup/merge (the correct behaviour for raw events).
+    // The former SAGE_MEMORY_EPISODIC_RAW_STORE=true setting was removed (now a no-op).
     SAGE_HOST: "127.0.0.1",
     SAGE_PORT: String(port),
     SAGE_ADMIN_ENABLED: "true",

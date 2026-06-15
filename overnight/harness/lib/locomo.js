@@ -167,6 +167,10 @@ async function judgedAccuracy({
         model: answererModel,
         messages: [{ role: "user", content: qa.question }],
         chatId: qa.scope,
+        // Read-only: retrieve from qa.scope but never write the question/answer back
+        // into it, so the judged-accuracy checkpoint cannot contaminate the scored
+        // scope with its own generated text.
+        skipMemoryWrite: true,
       });
     } catch (error) {
       results.push({ id: qa.id, category: qa.categoryName, error: error.message });

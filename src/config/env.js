@@ -96,6 +96,10 @@ function createConfig(env = process.env) {
     memory: {
       mode: memoryMode,
       mem0Enabled: parseBoolean(env.SAGE_MEM0_ENABLED, true),
+      // Local clean-fact extraction (Experiment 5): a $0, local (qwen3:14b/Ollama)
+      // replacement for the dead cloud-mem0 extraction path. Default OFF so production
+      // behaviour is unchanged; the overnight bench turns it on via SAGE_CLEANFACT_ENABLED.
+      cleanFactEnabled: parseBoolean(env.SAGE_CLEANFACT_ENABLED, false),
       zepEnabled: parseBoolean(env.SAGE_ZEP_ENABLED, true),
       redisEnabled: parseBoolean(env.SAGE_REDIS_ENABLED, true),
       topK: parsePositiveInteger(env.SAGE_MEMORY_TOP_K, 5, "SAGE_MEMORY_TOP_K"),
@@ -123,14 +127,11 @@ function createConfig(env = process.env) {
       // (mnemosy-ai's recall() searches the whole shared collection unfiltered).
       // Default OFF so merging changes nothing until deliberately enabled.
       scopeFilter: parseBoolean(env.SAGE_MEMORY_SCOPE_FILTER_ENABLED, false),
-      // When enabled, episodic turns are written DIRECTLY to Qdrant (mnemosy-ai's
-      // raw db.store) instead of through mnemosyneClient.store(), which runs an
-      // unconditional 0.85-cosine dedup/merge that soft-deletes near-duplicate
-      // turns and strips their metadata (incl. scopeKey). Episodic turns are raw
-      // conversation events that must never be merged with each other; merging
-      // them collapses distinct memories and drops scopeKey. Default OFF so
-      // production semantic dedup is unchanged; the benchmark enables it.
-      episodicRawStore: parseBoolean(env.SAGE_MEMORY_EPISODIC_RAW_STORE, false),
+      // NOTE: episodic turns are now ALWAYS stored via mnemosy-ai's raw db.store
+      // (storeEpisodic), bypassing fullStorePipeline's unconditional dedup/merge.
+      // The former `episodicRawStore` flag (and SAGE_MEMORY_EPISODIC_RAW_STORE env)
+      // was removed in Experiment 4 — the raw path is the only correct behaviour for
+      // raw conversation events, not an opt-in. See MEMORY_CONTRACTS.md (entry #1).
       retrievalTimeoutMs: memoryRetrievalTimeoutMs,
       retrievalBudgetMs: memoryRetrievalBudgetMs,
       retrievalWindowMs: memoryRetrievalWindowMs,
@@ -176,6 +177,13 @@ function createConfig(env = process.env) {
           30,
           "SAGE_MEMORY_TIMEOUT_REDIS_MS"
         ),
+        // Local clean-fact extraction calls a local LLM (qwen3:14b) — far slower than
+        // the cloud-mem0 250ms budget; give it a generous, ingest-side timeout.
+        cleanfactMs: parsePositiveInteger(
+          env.SAGE_MEMORY_TIMEOUT_CLEANFACT_MS,
+          30000,
+          "SAGE_MEMORY_TIMEOUT_CLEANFACT_MS"
+        ),
       },
       circuitBreaker: {
         failureThreshold: parsePositiveInteger(
@@ -203,6 +211,20 @@ function createConfig(env = process.env) {
         baseUrl: optionalString(env.MEM0_BASE_URL) || "https://api.mem0.ai",
         organizationId: optionalString(env.MEM0_ORG_ID),
         projectId: optionalString(env.MEM0_PROJECT_ID),
+      },
+      // Local clean-fact extractor (Experiment 5). Local Ollama generation model
+      // (qwen3:14b), temperature 0 + fixed seed for determinism. See
+      // src/services/memory/local-extractor-adapter.js.
+      cleanFact: {
+        ollamaUrl: optionalString(env.SAGE_CLEANFACT_OLLAMA_URL) || "http://127.0.0.1:11434",
+        model: optionalString(env.SAGE_CLEANFACT_MODEL) || "qwen3:14b",
+        temperature: env.SAGE_CLEANFACT_TEMPERATURE ? Number(env.SAGE_CLEANFACT_TEMPERATURE) : 0,
+        seed: env.SAGE_CLEANFACT_SEED ? Number(env.SAGE_CLEANFACT_SEED) : 7,
+        timeoutMs: parsePositiveInteger(
+          env.SAGE_MEMORY_TIMEOUT_CLEANFACT_MS,
+          30000,
+          "SAGE_MEMORY_TIMEOUT_CLEANFACT_MS"
+        ),
       },
       zep: {
         apiKey: optionalString(env.ZEP_API_KEY),
