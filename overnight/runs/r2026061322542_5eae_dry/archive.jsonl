@@ -1,2 +1,0 @@
-{"iteration":"gate3-forced-revert","phase":"gate3","config":{"semanticTopK":0,"episodicTopK":0,"graphMaxResults":20,"contextMaxTokens":200},"utility":-0.0025153846153846155,"meanRecall":0,"meanTokens":50.30769230769231,"meanMrr":0,"parentUtility":-0.0007,"decision":"revert"}
-{"iteration":"gate3-forced-keep","phase":"gate3","config":{"semanticTopK":20,"episodicTopK":10,"graphMaxResults":20,"contextMaxTokens":4000},"utility":-0.0007,"meanRecall":0,"meanTokens":14,"meanMrr":0,"parentUtility":-0.0025153846153846155,"decision":"keep"}
