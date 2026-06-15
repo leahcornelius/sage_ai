@@ -34,6 +34,8 @@ function benchEnv({ collection, port, benchKey, qdrantUrl, cacheUrl, graphUrl })
     SAGE_MEMORY_RETRIEVAL_TIMEOUT_MS: BUDGET_MS,
     SAGE_MEMORY_TIMEOUT_MNEMOSYNE_MS: BUDGET_MS,
     SAGE_MEMORY_MODE: "soft",
+    // P1 scope-filter starts OFF; the loop toggles it live via /admin/memory-config.
+    SAGE_MEMORY_SCOPE_FILTER_ENABLED: "false",
     SAGE_HOST: "127.0.0.1",
     SAGE_PORT: String(port),
     SAGE_ADMIN_ENABLED: "true",
@@ -53,9 +55,13 @@ function isAlive(pid) {
   }
 }
 
-function launchSage({ repoRoot, env, store, port, collection, epoch }) {
-  const out = fs.openSync(path.join(store.logsDir, "sage.out.log"), "a");
-  const err = fs.openSync(path.join(store.logsDir, "sage.err.log"), "a");
+// `name` distinguishes concurrent instances (e.g. the LoCoMo Sage). The default
+// "" keeps the synthetic instance's files exactly as night one (sage.boot.json,
+// sage.pid, sage.out/err.log); a name suffixes them (sage.locomo.boot.json, ...).
+function launchSage({ repoRoot, env, store, port, collection, epoch, name = "" }) {
+  const sfx = name ? `.${name}` : "";
+  const out = fs.openSync(path.join(store.logsDir, `sage${sfx}.out.log`), "a");
+  const err = fs.openSync(path.join(store.logsDir, `sage${sfx}.err.log`), "a");
   const child = spawn(process.execPath, ["src/index.js"], {
     cwd: repoRoot,
     env: { ...process.env, ...env },
@@ -69,15 +75,17 @@ function launchSage({ repoRoot, env, store, port, collection, epoch }) {
     port,
     collection,
     epoch,
+    name: name || "synthetic",
     startedAt: new Date().toISOString(),
   };
-  writeJson(path.join(store.runDir, "sage.boot.json"), boot);
-  fs.writeFileSync(path.join(store.runDir, "sage.pid"), String(child.pid));
+  writeJson(path.join(store.runDir, `sage${sfx}.boot.json`), boot);
+  fs.writeFileSync(path.join(store.runDir, `sage${sfx}.pid`), String(child.pid));
   return boot;
 }
 
-function readBoot(store) {
-  return readJson(path.join(store.runDir, "sage.boot.json"));
+function readBoot(store, name = "") {
+  const sfx = name ? `.${name}` : "";
+  return readJson(path.join(store.runDir, `sage${sfx}.boot.json`));
 }
 
 async function sleep(ms) {

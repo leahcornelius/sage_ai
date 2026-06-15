@@ -14,6 +14,8 @@ const NOISE_BAND_CAP = 0.02; // above this, scoring is unreliable -> structural 
 function fullConfig(c) {
   const out = {};
   for (const k of CONFIG_KEYS) out[k] = c[k];
+  // scopeFilter is the one boolean knob; send it as 0/1, default OFF when unset.
+  out.scopeFilter = c.scopeFilter ? 1 : 0;
   return out;
 }
 
@@ -67,7 +69,7 @@ async function runMechanicalGate(name, fn, { attempts = 3, log = () => {} }) {
 }
 
 // ---- Gate 0: isolation preflight (NO retry) -------------------------------
-async function runGate0({ benchClient, qdrantBench, qdrantReal, collection, baseCollection, dataset, benchPort, realPort, scopePrefix, log }) {
+async function runGate0({ benchClient, qdrantBench, qdrantReal, collection, baseCollection, dataset, benchPort, realPort, scopePrefix, locomoCollection, locomoPort, log }) {
   const checks = [];
   const fail = (reason, extra) => ({ name: "Gate0", pass: false, structural: true, reason, checks, ...extra });
 
@@ -116,6 +118,23 @@ async function runGate0({ benchClient, qdrantBench, qdrantReal, collection, base
 
   // 4) effective collection is not the real one
   if (collection === "sage_mem_v2") return fail("effective collection is the real sage_mem_v2");
+
+  // 4b) LoCoMo store isolation: its collection is distinct from the synthetic store
+  // and the real store, lives in the isolated qdrant (not real), and runs on its own
+  // port. (The LoCoMo Sage process/port is also verified at bring-up, §7.)
+  if (locomoCollection) {
+    const locomoDistinct =
+      locomoCollection !== collection && locomoCollection !== "sage_mem_v2";
+    const locomoNotReal = !realCols.includes(locomoCollection);
+    const locomoPortDistinct =
+      String(locomoPort) !== String(realPort) && String(locomoPort) !== String(benchPort);
+    checks.push({ check: "locomo-collection-distinct", ok: locomoDistinct, locomoCollection, synthetic: collection });
+    checks.push({ check: "locomo-not-in-real-qdrant", ok: locomoNotReal });
+    checks.push({ check: "locomo-port-distinct", ok: locomoPortDistinct, locomoPort, benchPort, realPort });
+    if (!locomoDistinct) return fail(`LoCoMo collection ${locomoCollection} collides with synthetic/real store`);
+    if (!locomoNotReal) return fail(`LoCoMo collection ${locomoCollection} already exists in the real qdrant`);
+    if (!locomoPortDistinct) return fail(`LoCoMo port ${locomoPort} collides with bench/real port`);
+  }
 
   // 5) no real user scope in generated data
   const badScopes = dataset.scopes.filter((s) => !s.startsWith(scopePrefix));
@@ -225,15 +244,54 @@ async function runGate2({ client, dataset, model, log }) {
       const recallChanged = goldAt1 !== goldAt30;
 
       const changed = lenChanged || tokChanged || recallChanged;
-      const evidence = {
+      const semanticEvidence = {
         lowK: { len: r1.semanticMemories?.length, tokens: r1.contextTokenCount, goldPresent: goldAt1 },
         highK: { len: r2.semanticMemories?.length, tokens: r2.contextTokenCount, goldPresent: goldAt30 },
         lenChanged, tokChanged, recallChanged,
       };
       if (!changed) {
-        return { pass: false, structural: true, reason: "semanticTopK=1 vs 30 changed nothing (knob ignored or cache masking)", evidence };
+        return { pass: false, structural: true, reason: "semanticTopK=1 vs 30 changed nothing (knob ignored or cache masking)", evidence: { semantic: semanticEvidence } };
       }
-      return { pass: true, evidence };
+
+      // ---- scopeFilter toggle changes behaviour (spec §6) ----
+      // Fixture: in-scope gold + same-attribute lookalikes in a SECOND scope. With
+      // scopeFilter OFF the cross-scope lookalikes appear; ON they are filtered out,
+      // so the returned semantic ids/length/tokens change (same crispness as the K check).
+      const sfQ = dataset.scopeFilterGate.question;
+      const sfOff = { semanticTopK: 10, episodicTopK: 0, graphMaxResults: 20, contextMaxTokens: 4000, scopeFilter: 0 };
+      const sfOn = { ...sfOff, scopeFilter: 1 };
+      await applyConfig(client, sfOff);
+      const r3 = await client.adminRetrieve({ query: sfQ.query, scope: sfQ.scope, model });
+      await applyConfig(client, sfOn);
+      const r4 = await client.adminRetrieve({ query: sfQ.query, scope: sfQ.scope, model });
+      if (r3.budgetExceeded || r4.budgetExceeded) {
+        return { pass: false, transient: true, reason: "budget exceeded (scopeFilter warmup)" };
+      }
+      if (r3.cacheHit || r4.cacheHit) {
+        return { pass: false, structural: true, reason: "cacheHit=true (cache masking scopeFilter effect)" };
+      }
+      const offTexts = (r3.semanticMemories || []).map((m) => m.text);
+      const onTexts = (r4.semanticMemories || []).map((m) => m.text);
+      const goldSf = sfQ.requiredMarkers[0];
+      const sfLenChanged = offTexts.length !== onTexts.length;
+      const sfSetChanged = JSON.stringify(offTexts) !== JSON.stringify(onTexts);
+      const sfTokChanged = r3.contextTokenCount !== r4.contextTokenCount;
+      const sfMrrChanged =
+        ((r3.contextBlock || "").includes(goldSf)) !== ((r4.contextBlock || "").includes(goldSf));
+      const sfChanged = sfLenChanged || sfSetChanged || sfTokChanged || sfMrrChanged;
+      const scopeFilterEvidence = {
+        off: { len: offTexts.length, tokens: r3.contextTokenCount },
+        on: { len: onTexts.length, tokens: r4.contextTokenCount },
+        sfLenChanged, sfSetChanged, sfTokChanged, sfMrrChanged,
+      };
+      if (!sfChanged) {
+        return {
+          pass: false, structural: true,
+          reason: "scopeFilter off vs on changed nothing (flag inert)",
+          evidence: { semantic: semanticEvidence, scopeFilter: scopeFilterEvidence },
+        };
+      }
+      return { pass: true, evidence: { semantic: semanticEvidence, scopeFilter: scopeFilterEvidence } };
     },
     { log }
   );
@@ -269,6 +327,24 @@ async function runGate3({ client, dataset, model, lambda, keepThreshold, store, 
         };
       }
 
+      // ---- scopeFilter forced toggle: exercise the NEW knob through the decision path ----
+      // strong-scoped vs strong-unscoped; a decision is recorded either way (we do not
+      // require scoped to win — that is the experiment's outcome, not a gate).
+      const strongScoped = { ...strong, scopeFilter: 1 };
+      const ssEval = await evalConfig({ client, questions: dataset.dev, model, lambda, config: strongScoped, concurrency });
+      if (ssEval.agg.budgetExceededCount > 0) {
+        return { pass: false, transient: true, reason: "budget exceeded (scopeFilter forced eval)" };
+      }
+      if (ssEval.agg.cacheHits > 0) {
+        return { pass: false, structural: true, reason: "cacheHit during scopeFilter forced eval" };
+      }
+      const scopeFilterDecision = decide(sEval.utility, ssEval.utility, keepThreshold);
+      store.appendArchive({
+        iteration: "gate3-forced-scopefilter", phase: "gate3", config: fullConfig(strongScoped),
+        utility: ssEval.utility, meanRecall: ssEval.agg.meanRecall, meanTokens: ssEval.agg.meanTokens,
+        meanMrr: ssEval.agg.meanMrr, parentUtility: sEval.utility, decision: scopeFilterDecision,
+      });
+
       // Forced decisions exercise BOTH branches deterministically.
       const revertDecision = decide(sEval.utility, rEval.utility, keepThreshold); // expect revert
       const keepDecision = decide(rEval.utility, sEval.utility, keepThreshold); // expect keep
@@ -289,6 +365,10 @@ async function runGate3({ client, dataset, model, lambda, keepThreshold, store, 
       const evidence = {
         regressiveUtility: rEval.utility, strongUtility: sEval.utility,
         revertDecision, keepDecision, keepThreshold,
+        scopeFilter: {
+          unscopedUtility: sEval.utility, scopedUtility: ssEval.utility,
+          decision: scopeFilterDecision,
+        },
       };
       if (!bothFired) {
         return { pass: false, structural: true, reason: `keep/revert did not both fire: ${JSON.stringify({ revertDecision, keepDecision })}`, evidence };
@@ -300,4 +380,124 @@ async function runGate3({ client, dataset, model, lambda, keepThreshold, store, 
   );
 }
 
-export { runGate0, runGate1, runGate2, runGate3, evalConfig, applyConfig, fullConfig, CONFIG_KEYS };
+// ---- Gate 1b: the semantic channel is actually exercised (spec §5) ---------
+// The linchpin. Proves P0 worked: gold arrives via SEMANTIC, not the 20-turn
+// episodic buffer. Runs after Gate 1, before the loop, at scopeFilter OFF and a
+// GENEROUS contextMaxTokens (2000) so we measure CHANNEL ATTRIBUTION, not the
+// cost-tuned trim (semantic is popped second in the trim order, so a tight budget
+// would evict semantic gold and look like a P0 failure). Three deterministic
+// contrasts on the dev set (no model calls):
+//   A = s5/e3  (both channels)         B = s5/e0  (semantic-isolated; episodic
+//   floors at 1 turn, which burial guarantees is filler)   C = s0/e3 (episodic-
+//   isolated; semanticTopK=0 genuinely returns [] — verified, unlike episodicTopK=0).
+// Floors are computed on single-hop + temporal (multi-hop reported separately:
+// computeMrr ranks only the first marker, and multi needs ALL markers, which would
+// depress the aggregate for reasons unrelated to "did semantic work").
+// On failure: HALT with a P0-too-weak diagnosis. Do NOT fix-and-retry to force a pass.
+const GATE1B = {
+  contextMaxTokens: 2000,
+  meanMrrAMin: 0.2,
+  meanRecallBMin: 0.5,
+  meanRecallCMax: 0.1,
+  dominanceAddMin: 0.4,
+  dominanceRatio: 3,
+  attributionMin: 0.7,
+};
+
+async function runGate1b({ client, dataset, model, lambda, concurrency, log }) {
+  return runMechanicalGate(
+    "Gate1b",
+    async () => {
+      const cm = GATE1B.contextMaxTokens;
+      const cfgA = { semanticTopK: 5, episodicTopK: 3, graphMaxResults: 20, contextMaxTokens: cm, scopeFilter: 0 };
+      const cfgB = { ...cfgA, episodicTopK: 0 }; // semantic-isolated
+      const cfgC = { ...cfgA, semanticTopK: 0 }; // episodic-isolated
+      const dev = dataset.dev;
+
+      const A = await evalConfig({ client, questions: dev, model, lambda, config: cfgA, concurrency });
+      const B = await evalConfig({ client, questions: dev, model, lambda, config: cfgB, concurrency });
+      const C = await evalConfig({ client, questions: dev, model, lambda, config: cfgC, concurrency });
+
+      const runs = [A, B, C];
+      if (runs.some((r) => r.agg.budgetExceededCount > 0)) {
+        return { pass: false, transient: true, reason: "budget exceeded on some retrievals (warmup)" };
+      }
+      if (runs.some((r) => r.agg.cacheHits > 0)) {
+        return { pass: false, structural: true, reason: "cacheHit=true during Gate1b scoring (cache not disabled)" };
+      }
+
+      const byId = (agg) => new Map(agg.perQuestion.map((p) => [p.id, p]));
+      const Aq = byId(A.agg);
+      const Bq = byId(B.agg);
+      const Cq = byId(C.agg);
+      const floorQs = dev.filter(
+        (q) => (q.type === "single" || q.type === "temporal") && q.requiredMarkers.length > 0
+      );
+      const meanOf = (qs, m, key) => {
+        if (!qs.length) return 0;
+        return qs.reduce((acc, q) => acc + (m.get(q.id)?.[key] ?? 0), 0) / qs.length;
+      };
+
+      const meanMrrA = meanOf(floorQs, Aq, "mrr");
+      const meanRecallB = meanOf(floorQs, Bq, "recall");
+      const meanRecallC = meanOf(floorQs, Cq, "recall");
+
+      // per-question attribution: of recall_A==1 items, the fraction with mrr_A>0
+      // (guards the night-one "recall via episodic, MRR=0" pathology per-question).
+      const recall1 = floorQs.filter((q) => (Aq.get(q.id)?.recall ?? 0) === 1);
+      const attribution = recall1.length
+        ? recall1.filter((q) => (Aq.get(q.id)?.mrr ?? 0) > 0).length / recall1.length
+        : 0;
+
+      // multi-hop reported separately
+      const multiQs = dev.filter((q) => q.type === "multi");
+      const multiRecallA = meanOf(multiQs, Aq, "recall");
+      const multiRecallB = meanOf(multiQs, Bq, "recall");
+
+      const dominanceAdd = meanRecallB - meanRecallC;
+      const dominanceRatioOk = meanRecallB >= GATE1B.dominanceRatio * Math.max(meanRecallC, 0.05);
+      const criteria = {
+        meanMrrA: meanMrrA >= GATE1B.meanMrrAMin,
+        meanRecallB: meanRecallB >= GATE1B.meanRecallBMin,
+        meanRecallC: meanRecallC <= GATE1B.meanRecallCMax,
+        dominance: dominanceAdd >= GATE1B.dominanceAddMin && dominanceRatioOk,
+        attribution: attribution >= GATE1B.attributionMin,
+      };
+      const evidence = {
+        configs: { A: fullConfig(cfgA), B: fullConfig(cfgB), C: fullConfig(cfgC) },
+        meanMrrA, meanRecallB, meanRecallC,
+        dominanceAdd, dominanceRatioOk,
+        attribution, recall1Count: recall1.length,
+        multiRecallA, multiRecallB,
+        thresholds: GATE1B,
+        criteria,
+        offlinePreview: dataset.meta?.offlinePreview,
+      };
+
+      const passed = Object.values(criteria).every(Boolean);
+      if (!passed) {
+        const failed = Object.entries(criteria).filter(([, v]) => !v).map(([k]) => k);
+        return {
+          pass: false,
+          structural: true,
+          p0TooWeak: true,
+          reason:
+            `Gate1b FAILED [${failed.join(", ")}] — the benchmark does not stress the semantic ` +
+            `channel hard enough (P0 too weak). meanMrrA=${meanMrrA.toFixed(3)} ` +
+            `recallB(semantic-only)=${meanRecallB.toFixed(3)} recallC(episodic-only)=${meanRecallC.toFixed(3)}. ` +
+            `If recallC is high, burial failed; if recallB is low, distractors are too strong or the ` +
+            `paraphrase gap too wide. Strengthen P0 (deeper burial / more facts) — do NOT fix-and-retry.`,
+          evidence,
+        };
+      }
+      log(
+        `  Gate1b: semantic exercised — mrrA=${meanMrrA.toFixed(3)} ` +
+          `recallB=${meanRecallB.toFixed(3)} recallC=${meanRecallC.toFixed(3)} attrib=${attribution.toFixed(2)}`
+      );
+      return { pass: true, evidence };
+    },
+    { log }
+  );
+}
+
+export { runGate0, runGate1, runGate1b, runGate2, runGate3, evalConfig, applyConfig, fullConfig, CONFIG_KEYS };

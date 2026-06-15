@@ -183,6 +183,7 @@ function createMemoryController({
             scopeKey,
             query: normalizedQuery,
             topK: config.memory.semanticTopK,
+            scopeFilter: config.memory.scopeFilter,
           }),
         countResults: true,
       }),
