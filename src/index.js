@@ -42,6 +42,18 @@ async function main() {
       },
       "Loaded Sage server configuration"
     );
+    // Non-sensitive key fingerprint: last 6 chars only, never the full secret.
+    // Lets an operator confirm which upstream API key is actually live.
+    const keyTail = (k) =>
+      typeof k === "string" && k.length >= 6 ? `…${k.slice(-6)}` : "(unset)";
+    logger.info(
+      {
+        openaiApiKeyTail: keyTail(config.openai.apiKey),
+        llmLocalApiKeyTail: keyTail(config.llm.localApiKey),
+        llmCloudApiKeyTail: keyTail(config.llm.cloudApiKey),
+      },
+      "Active upstream API key fingerprint (last 6 chars only)"
+    );
     logger.debug(
       {
         legacyLogLevel: config.logging.level,

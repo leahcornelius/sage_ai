@@ -75,6 +75,11 @@ function createConfig(env = process.env) {
     auth: {
       apiKey: requireString(env.SAGE_API_KEY, "SAGE_API_KEY"),
     },
+    admin: {
+      // Guarded, localhost-only benchmark/admin routes. Disabled by default;
+      // only the dedicated overnight benchmark instance sets SAGE_ADMIN_ENABLED=true.
+      enabled: parseBoolean(env.SAGE_ADMIN_ENABLED, false),
+    },
     server: {
       host: optionalString(env.SAGE_HOST) || "0.0.0.0",
       port: parsePositiveInteger(env.SAGE_PORT, 8787, "SAGE_PORT"),

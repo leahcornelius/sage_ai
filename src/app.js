@@ -7,6 +7,7 @@ import { registerRequestLogging } from "./http/hooks/request-logging.js";
 import { registerHealthRoutes } from "./http/routes/health.js";
 import { registerModelRoutes } from "./http/routes/models.js";
 import { registerChatCompletionRoutes } from "./http/routes/chat-completions.js";
+import { registerAdminRoutes } from "./http/routes/admin.js";
 
 /**
  * Builds the Fastify app with injected services so routes stay thin and tests
@@ -60,6 +61,16 @@ async function buildApp({ config, logger, services }) {
     },
     { prefix: "/v1" }
   );
+
+  // Guarded, localhost-only benchmark admin routes. Disabled by default; only the
+  // dedicated overnight benchmark instance enables them (SAGE_ADMIN_ENABLED=true).
+  if (config.admin?.enabled) {
+    await app.register(registerAdminRoutes);
+    logger.warn(
+      { host: config.server.host },
+      "SAGE_ADMIN_ENABLED=true: localhost-only /admin routes are registered (benchmark mode)"
+    );
+  }
 
   return app;
 }

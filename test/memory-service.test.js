@@ -66,10 +66,11 @@ function createMnemosyneStub() {
       entries.push(payload);
       return `m-${entries.length}`;
     },
-    async recall({ query, topK }) {
+    async recall({ query, topK, limit }) {
+      const count = limit ?? topK ?? entries.length;
       const matched = entries
         .filter((entry) => String(entry.text || "").includes(String(query)))
-        .slice(0, topK || entries.length)
+        .slice(0, count)
         .map((entry, index) => ({
           entry: {
             id: `m-${index + 1}`,

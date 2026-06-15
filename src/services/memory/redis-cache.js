@@ -142,6 +142,31 @@ function createRedisCache({ config, logger }) {
     }
   }
 
+  async function flushQueryCache() {
+    const queryPrefix = `${prefix}:query`;
+    const identityPrefix = `${prefix}:identity`;
+    if (!redis) {
+      for (const key of Array.from(inMemory.keys())) {
+        if (key.startsWith(queryPrefix) || key.startsWith(identityPrefix)) {
+          inMemory.delete(key);
+        }
+      }
+      return;
+    }
+    await connect();
+    const patterns = [`${queryPrefix}:*`, `${prefix}:query-index:*`, `${identityPrefix}:*`];
+    for (const pattern of patterns) {
+      let cursor = "0";
+      do {
+        const [next, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 200);
+        cursor = next;
+        if (keys.length > 0) {
+          await redis.del(...keys);
+        }
+      } while (cursor !== "0");
+    }
+  }
+
   async function ping() {
     if (!redis) {
       return "PONG";
@@ -169,6 +194,7 @@ function createRedisCache({ config, logger }) {
     getQueryContext,
     setQueryContext,
     invalidateScope,
+    flushQueryCache,
     ping,
     close,
   };

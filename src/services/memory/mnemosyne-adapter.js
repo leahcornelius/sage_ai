@@ -118,8 +118,12 @@ function createMnemosyneAdapter({ mnemosyneClient, config, logger }) {
     if (!enabled || !query) {
       return [];
     }
+    // mnemosy-ai's recall() honors `limit` (defaults to 5) and ignores `topK`,
+    // so passing only `topK` left semanticTopK inert. Pass `limit` so the
+    // semanticTopK read-side knob actually controls the semantic result count.
     const recalled = await mnemosyneClient.recall({
       query,
+      limit: topK,
       topK,
     });
     return (Array.isArray(recalled) ? recalled : []).map((memory) => {
